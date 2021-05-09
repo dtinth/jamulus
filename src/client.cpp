@@ -701,7 +701,7 @@ void CClient::OnHandledSignal ( int sigNum )
             {
                 ChannelInfo.strName = QTextStream ( &file ).readAll();
                 file.close();
-                pClient->SetRemoteInfo();
+                SetRemoteInfo();
             }
         }
     default:
