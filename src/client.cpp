@@ -693,7 +693,17 @@ void CClient::OnHandledSignal ( int sigNum )
         // this should trigger OnAboutToQuit
         QCoreApplication::instance()->exit();
         break;
+    case SIGUSR1:
+        {
+            QFile file ( "jamulus_name.txt" );
 
+            if ( file.open ( QIODevice::ReadOnly ) )
+            {
+                ChannelInfo.strName = QTextStream ( &file ).readAll();
+                file.close();
+                pClient->SetRemoteInfo();
+            }
+        }
     default:
         break;
     }
