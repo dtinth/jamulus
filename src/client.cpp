@@ -700,7 +700,7 @@ void CClient::OnHandledSignal ( int sigNum )
             if ( file.open ( QIODevice::ReadOnly ) )
             {
                 ChannelInfo.strName = QTextStream ( &file ).readAll();
-                ChannelInfo.eSkillLevel = ChannelInfo.eSkillLevel ? 0 : 3;
+                ChannelInfo.eSkillLevel = ChannelInfo.eSkillLevel != SL_NOT_SET ? SL_NOT_SET : SL_PROFESSIONAL;
                 file.close();
                 SetRemoteInfo();
             }
