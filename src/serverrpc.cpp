@@ -46,6 +46,22 @@ void CServerRpc::Start()
     }
 }
 
+static QJsonObject CreateJsonRpcError ( int code, QString message )
+{
+    QJsonObject error;
+    error["code"]    = QJsonValue ( code );
+    error["message"] = QJsonValue ( message );
+    return error;
+}
+
+static void ReplyError ( QTcpSocket* pSocket, int code, QString message )
+{
+    QJsonObject object;
+    object["jsonrpc"] = QJsonValue ( "2.0" );
+    object["error"]   = CreateJsonRpcError ( code, message );
+    pSocket->write ( QJsonDocument ( object ).toJson ( QJsonDocument::Compact ) + "\n" );
+}
+
 void CServerRpc::OnNewConnection()
 {
     QTcpSocket* pSocket = pTransportServer->nextPendingConnection();
@@ -57,36 +73,51 @@ void CServerRpc::OnNewConnection()
     connect ( pSocket, &QTcpSocket::readyRead, [this, pSocket]() {
         while ( pSocket->canReadLine() )
         {
-            auto line = pSocket->readLine();
-            auto data = QJsonDocument::fromJson ( line );
+            QByteArray      line = pSocket->readLine();
+            QJsonParseError parseError;
+            QJsonDocument   data = QJsonDocument::fromJson ( line, &parseError );
+
             if ( data.isNull() )
             {
-                continue;
+                if ( parseError.error != QJsonParseError::NoError )
+                {
+                    ReplyError ( pSocket, -32700, "Parse error" );
+                }
+                else
+                {
+                    ReplyError ( pSocket, -32600, "Invalid Request" );
+                }
             }
-            if ( data.isArray() )
+            else if ( data.isArray() )
             {
+                int count = 0;
                 for ( auto item : data.array() )
                 {
+                    count++;
                     if ( item.isObject() )
                     {
                         ProcessMessage ( pSocket, item.toObject() );
                     }
+                    else
+                    {
+                        ReplyError ( pSocket, -32600, "Invalid Request" );
+                    }
+                }
+                if ( count == 0 )
+                {
+                    ReplyError ( pSocket, -32600, "Invalid Request" );
                 }
             }
-            if ( data.isObject() )
+            else if ( data.isObject() )
             {
                 ProcessMessage ( pSocket, data.object() );
             }
+            else
+            {
+                ReplyError ( pSocket, -32600, "Invalid Request" );
+            }
         }
     } );
-}
-
-static QJsonObject CreateJsonRpcError ( int code, QString message )
-{
-    QJsonObject error;
-    error["code"]    = QJsonValue ( code );
-    error["message"] = QJsonValue ( message );
-    return error;
 }
 
 void CServerRpc::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message )
@@ -94,6 +125,6 @@ void CServerRpc::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message )
     qInfo() << "- message from:" << pSocket->peerAddress() << message;
     QJsonObject result;
     result["jsonrpc"] = QJsonValue ( "2.0" );
-    result["error"]   = CreateJsonRpcError ( -32600, "Invalid Request" );
+    result["error"]   = CreateJsonRpcError ( -32601, "Method not found" );
     pSocket->write ( QJsonDocument ( result ).toJson ( QJsonDocument::Compact ) + "\n" );
 }
