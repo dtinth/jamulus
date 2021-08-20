@@ -40,6 +40,8 @@
 #if defined( Q_OS_MACX )
 #    include "mac/activity.h"
 #endif
+#include <memory>
+#include "serverrpc.h"
 
 // Implementation **************************************************************
 
@@ -657,6 +659,9 @@ int main ( int argc, char** argv )
                              bDisableRecording,
                              bDelayPan,
                              eLicenceType );
+
+            std::unique_ptr<CServerRpc> ServerRpc ( new CServerRpc(&Server) );
+            ServerRpc->Start();
 
 #ifndef HEADLESS
             if ( bUseGUI )
