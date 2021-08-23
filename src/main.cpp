@@ -41,7 +41,7 @@
 #    include "mac/activity.h"
 #endif
 #include <memory>
-#include "serverrpc.h"
+#include "rpcserver.h"
 
 // Implementation **************************************************************
 
@@ -591,6 +591,9 @@ int main ( int argc, char** argv )
 //CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
     // clang-format on
 
+    CRpcServer RpcServer ( 22123 );
+    RpcServer.Start();
+
     try
     {
         if ( bIsClient )
@@ -659,9 +662,6 @@ int main ( int argc, char** argv )
                              bDisableRecording,
                              bDelayPan,
                              eLicenceType );
-
-            std::unique_ptr<CServerRpc> ServerRpc ( new CServerRpc(&Server) );
-            ServerRpc->Start();
 
 #ifndef HEADLESS
             if ( bUseGUI )
