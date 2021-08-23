@@ -76,6 +76,7 @@ int main ( int argc, char** argv )
     bool         bCustomPortNumberGiven      = false;
     int          iNumServerChannels          = DEFAULT_USED_NUM_CHANNELS;
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
+    quint16      iJsonRpcPortNumber          = -1;
     quint16      iQosNumber                  = DEFAULT_QOS_NUMBER;
     ELicenceType eLicenceType                = LT_NO_LICENCE;
     QString      strMIDISetup                = "";
@@ -257,6 +258,15 @@ int main ( int argc, char** argv )
             bCustomPortNumberGiven = true;
             qInfo() << qUtf8Printable ( QString ( "- selected port number: %1" ).arg ( iPortNumber ) );
             CommandLineOptions << "--port";
+            continue;
+        }
+
+        // JSON RPC port number ---------------------------------------------------------
+        if ( GetNumericArgument ( argc, argv, i, "--jsonrpcport", "--jsonrpcport", 0, 65535, rDbleArgument ) )
+        {
+            iJsonRpcPortNumber = static_cast<quint16> ( rDbleArgument );
+            qInfo() << qUtf8Printable ( QString ( "- JSON RPC port number: %1" ).arg ( iJsonRpcPortNumber ) );
+            CommandLineOptions << "--jsonrpcport";
             continue;
         }
 
@@ -591,7 +601,7 @@ int main ( int argc, char** argv )
 //CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
     // clang-format on
 
-    CRpcServer RpcServer ( 22123 );
+    CRpcServer RpcServer ( iJsonRpcPortNumber );
     RpcServer.Start();
 
     try
@@ -744,6 +754,7 @@ QString UsageArguments ( char** argv )
            "                        supported for headless server mode)\n"
            "  -n, --nogui           disable GUI\n"
            "  -p, --port            set the local port number\n"
+           "      --jsonrpcport     enable JSON-RPC, set port number\n"
            "  -Q, --qos             set the QoS value. Default is 128. Disable with 0\n"
            "                        (see the Jamulus website to enable QoS on Windows)\n"
            "  -t, --notranslation   disable translation (use English language)\n"
