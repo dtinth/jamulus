@@ -41,6 +41,10 @@ CRpcServer::~CRpcServer()
 
 void CRpcServer::Start()
 {
+    if ( iPort < 0 )
+    {
+        return;
+    }
     if ( pTransportServer->listen ( QHostAddress ( "127.0.0.1" ), iPort ) )
     {
         qInfo() << "- RPC server started";
