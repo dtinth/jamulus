@@ -25,12 +25,8 @@
 
 #pragma once
 
-#include <QObject>
-#include <QTcpServer>
-#include <QTcpSocket>
-#include <memory>
-
 #include "server.h"
+#include "rpcserver.h"
 
 /* Classes ********************************************************************/
 class CServerRpc : public QObject
@@ -38,17 +34,6 @@ class CServerRpc : public QObject
     Q_OBJECT
 
 public:
-    CServerRpc ( CServer* pServer );
+    CServerRpc ( CServer* pServer, CRpcServer* pRpcServer );
     virtual ~CServerRpc();
-
-    void Start();
-
-private:
-    CServer*    pServer;
-    QTcpServer* pTransportServer;
-
-    void ProcessMessage ( QTcpSocket* pSocket, QJsonObject message );
-
-protected slots:
-    void OnNewConnection();
 };

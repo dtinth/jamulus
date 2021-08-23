@@ -407,6 +407,7 @@ HEADERS += src/buffer.h \
     src/server.h \
     src/serverlist.h \
     src/serverlogging.h \
+    src/serverrpc.h \
     src/rpcserver.h \
     src/settings.h \
     src/socket.h \
@@ -509,6 +510,7 @@ SOURCES += src/buffer.cpp \
     src/server.cpp \
     src/serverlist.cpp \
     src/serverlogging.cpp \
+    src/serverrpc.cpp \
     src/rpcserver.cpp \
     src/settings.cpp \
     src/signalhandler.cpp \

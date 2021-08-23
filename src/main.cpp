@@ -42,6 +42,7 @@
 #endif
 #include <memory>
 #include "rpcserver.h"
+#include "serverrpc.h"
 
 // Implementation **************************************************************
 
@@ -672,6 +673,8 @@ int main ( int argc, char** argv )
                              bDisableRecording,
                              bDelayPan,
                              eLicenceType );
+
+            CServerRpc ServerRpc ( &Server, &RpcServer );
 
 #ifndef HEADLESS
             if ( bUseGUI )

@@ -34,7 +34,7 @@
 #include <QMap>
 #include <memory>
 
-typedef std::function<QJsonObject ( const QJsonObject& )> CRpcHandler;
+typedef std::function<void ( const QJsonObject&, QJsonObject& )> CRpcHandler;
 
 /* Classes ********************************************************************/
 class CRpcServer : public QObject
@@ -54,7 +54,7 @@ private:
     QTcpServer* pTransportServer;
 
     // A map from method name to handler functions
-    QMap<QString, CRpcHandler> mapMethodHandlers;
+    std::map<QString, CRpcHandler> mapMethodHandlers;
 
     void ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJsonObject& response );
     void Send ( QTcpSocket* pSocket, const QJsonDocument& aMessage );
@@ -62,3 +62,6 @@ private:
 protected slots:
     void OnNewConnection();
 };
+
+/* Utilities ********************************************************************/
+QJsonObject CreateJsonRpcError ( int code, QString message );

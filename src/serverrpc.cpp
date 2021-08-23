@@ -25,106 +25,41 @@
 
 #include "serverrpc.h"
 
-CServerRpc::CServerRpc ( CServer* pServer ) : pServer ( pServer ), pTransportServer ( new QTcpServer ( this ) )
+CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
 {
-    connect ( pTransportServer, &QTcpServer::newConnection, this, &CServerRpc::OnNewConnection );
-}
+    pRpcServer->HandleMethod ( "jamulusserver/getServerInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonObject serverInfo;
+        serverInfo["name"]               = pServer->GetServerName();
+        serverInfo["city"]               = pServer->GetServerCity();
+        serverInfo["country"]            = pServer->GetServerCountry();
+        serverInfo["welcomeMessage"]     = pServer->GetWelcomeMessage();
+        serverInfo["registrationStatus"] = pServer->GetSvrRegStatus();
+        response["result"]               = serverInfo;
+    } );
 
-CServerRpc::~CServerRpc() { qInfo() << "- server destr0y!!"; }
-
-void CServerRpc::Start()
-{
-    QString listenPath ( QDir::tempPath() + "/jams.sock" );
-    qInfo() << "- listen to " << listenPath;
-    if ( pTransportServer->listen ( QHostAddress ( "127.0.0.1" ), 22123 ) )
-    {
-        qInfo() << "- server start!!";
-    }
-    else
-    {
-        qInfo() << "- server cannot start:" << pTransportServer->errorString();
-    }
-}
-
-static QJsonObject CreateJsonRpcError ( int code, QString message )
-{
-    QJsonObject error;
-    error["code"]    = QJsonValue ( code );
-    error["message"] = QJsonValue ( message );
-    return error;
-}
-
-static void ReplyError ( QTcpSocket* pSocket, int code, QString message )
-{
-    QJsonObject object;
-    object["jsonrpc"] = QJsonValue ( "2.0" );
-    object["error"]   = CreateJsonRpcError ( code, message );
-    pSocket->write ( QJsonDocument ( object ).toJson ( QJsonDocument::Compact ) + "\n" );
-}
-
-void CServerRpc::OnNewConnection()
-{
-    QTcpSocket* pSocket = pTransportServer->nextPendingConnection();
-    if ( !pSocket )
-    {
-        return;
-    }
-    qInfo() << "- accept connection from:" << pSocket->peerAddress().toString();
-    connect ( pSocket, &QTcpSocket::readyRead, [this, pSocket]() {
-        while ( pSocket->canReadLine() )
+    pRpcServer->HandleMethod ( "jamulusserver/setServerName", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonServerName = params["serverName"];
+        if ( !jsonServerName.isString() )
         {
-            QByteArray      line = pSocket->readLine();
-            QJsonParseError parseError;
-            QJsonDocument   data = QJsonDocument::fromJson ( line, &parseError );
-
-            if ( data.isNull() )
-            {
-                if ( parseError.error != QJsonParseError::NoError )
-                {
-                    ReplyError ( pSocket, -32700, "Parse error" );
-                }
-                else
-                {
-                    ReplyError ( pSocket, -32600, "Invalid Request" );
-                }
-            }
-            else if ( data.isArray() )
-            {
-                int count = 0;
-                for ( auto item : data.array() )
-                {
-                    count++;
-                    if ( item.isObject() )
-                    {
-                        ProcessMessage ( pSocket, item.toObject() );
-                    }
-                    else
-                    {
-                        ReplyError ( pSocket, -32600, "Invalid Request" );
-                    }
-                }
-                if ( count == 0 )
-                {
-                    ReplyError ( pSocket, -32600, "Invalid Request" );
-                }
-            }
-            else if ( data.isObject() )
-            {
-                ProcessMessage ( pSocket, data.object() );
-            }
-            else
-            {
-                ReplyError ( pSocket, -32600, "Invalid Request" );
-            }
+            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            return;
         }
+
+        pServer->SetServerName ( jsonServerName.toString() );
+        response["result"] = "ok";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/setWelcomeMessage", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonWelcomeMessage = params["welcomeMessage"];
+        if ( !jsonWelcomeMessage.isString() )
+        {
+            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            return;
+        }
+
+        pServer->SetWelcomeMessage ( jsonWelcomeMessage.toString() );
+        response["result"] = "ok";
     } );
 }
 
-void CServerRpc::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message )
-{
-    qInfo() << "- message from:" << pSocket->peerAddress() << message;
-    QJsonObject result;
-    result["jsonrpc"] = QJsonValue ( "2.0" );
-    result["error"]   = CreateJsonRpcError ( -32601, "Method not found" );
-    pSocket->write ( QJsonDocument ( result ).toJson ( QJsonDocument::Compact ) + "\n" );
-}
+CServerRpc::~CServerRpc() {}

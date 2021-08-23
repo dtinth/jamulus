@@ -55,7 +55,7 @@ void CRpcServer::Start()
     }
 }
 
-static QJsonObject CreateJsonRpcError ( int code, QString message )
+QJsonObject CreateJsonRpcError ( int code, QString message )
 {
     QJsonObject error;
     error["code"]    = QJsonValue ( code );
@@ -144,10 +144,34 @@ void CRpcServer::OnNewConnection()
 
 void CRpcServer::Send ( QTcpSocket* pSocket, const QJsonDocument& aMessage ) { pSocket->write ( aMessage.toJson ( QJsonDocument::Compact ) + "\n" ); }
 
+void CRpcServer::HandleMethod ( const QString& strMethod, CRpcHandler pHandler ) { mapMethodHandlers[strMethod] = pHandler; }
+
 void CRpcServer::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJsonObject& response )
 {
-    qInfo() << "- message from:" << pSocket->peerAddress() << message;
-    response["error"] = CreateJsonRpcError ( -32601, "Method not found" );
-}
+    if ( !message["method"].isString() )
+    {
+        response["error"] = CreateJsonRpcError ( -32600, "Invalid Request" );
+        return;
+    }
 
-void CRpcServer::HandleMethod ( const QString& strMethod, CRpcHandler pHandler ) { mapMethodHandlers[strMethod] = pHandler; }
+    // Obtain the method handler
+    auto method = message["method"].toString();
+    auto it     = mapMethodHandlers.find ( method );
+    if ( it == mapMethodHandlers.end() )
+    {
+        response["error"] = CreateJsonRpcError ( -32601, "Method not found" );
+        return;
+    }
+
+    // Obtain the params
+    auto jsonParams = message["params"];
+    if ( !jsonParams.isObject() )
+    {
+        response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+    }
+    auto params = jsonParams.toObject();
+
+    // Call the method handler
+    auto methodHandler = mapMethodHandlers[method];
+    methodHandler ( params, response );
+}
