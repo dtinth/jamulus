@@ -37,6 +37,35 @@ CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
         response["result"]               = serverInfo;
     } );
 
+    pRpcServer->HandleMethod ( "jamulusserver/getConnectedClients", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonArray            clients;
+        CVector<CHostAddress> vecHostAddresses;
+        CVector<QString>      vecsName;
+        CVector<int>          veciJitBufNumFrames;
+        CVector<int>          veciNetwFrameSizeFact;
+
+        pServer->GetConCliParam ( vecHostAddresses, vecsName, veciJitBufNumFrames, veciNetwFrameSizeFact );
+
+        // we assume that all vectors have the same length
+        const int iNumChannels = vecHostAddresses.Size();
+
+        // fill list with connected clients
+        for ( int i = 0; i < iNumChannels; i++ )
+        {
+            if ( !( vecHostAddresses[i].InetAddr == QHostAddress ( static_cast<quint32> ( 0 ) ) ) )
+            {
+                QJsonObject client;
+                client["address"]          = vecHostAddresses[i].toString ( CHostAddress::SM_IP_PORT );
+                client["name"]             = vecsName[i];
+                client["jitterBufferSize"] = veciJitBufNumFrames[i];
+                client["channels"]         = pServer->GetClientNumAudioChannels ( i );
+                clients.append ( client );
+            }
+        }
+
+        response["result"] = clients;
+    } );
+
     pRpcServer->HandleMethod ( "jamulusserver/setServerName", [=] ( const QJsonObject& params, QJsonObject& response ) {
         auto jsonServerName = params["serverName"];
         if ( !jsonServerName.isString() )
