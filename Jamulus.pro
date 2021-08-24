@@ -400,6 +400,7 @@ FORMS_GUI = src/clientdlgbase.ui \
 HEADERS += src/buffer.h \
     src/channel.h \
     src/client.h \
+    src/clientrpc.h \
     src/global.h \
     src/protocol.h \
     src/recorder/jamcontroller.h \
@@ -504,6 +505,7 @@ HEADERS_OPUS_X86 = libs/opus/celt/x86/celt_lpc_sse.h \
 SOURCES += src/buffer.cpp \
     src/channel.cpp \
     src/client.cpp \
+    src/clientrpc.cpp \
     src/main.cpp \
     src/protocol.cpp \
     src/recorder/jamcontroller.cpp \

@@ -43,6 +43,7 @@
 #include <memory>
 #include "rpcserver.h"
 #include "serverrpc.h"
+#include "clientrpc.h"
 
 // Implementation **************************************************************
 
@@ -624,6 +625,8 @@ int main ( int argc, char** argv )
                 CLocale::LoadTranslation ( Settings.strLanguage, pApp );
                 CInstPictures::UpdateTableOnLanguageChange();
             }
+
+            CClientRpc ClientRpc ( &Client, &RpcServer );
 
 #ifndef HEADLESS
             if ( bUseGUI )
