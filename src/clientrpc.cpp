@@ -29,17 +29,24 @@ static QJsonValue FormatSkillLevel ( ESkillLevel skillLevel );
 
 CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 {
+    connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
+        pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived", QJsonObject{ { "text", strChatText } } );
+    } );
+
+    connect ( pClient, &CClient::ClientIDReceived, [=] ( int iChanID ) {
+        pRpcServer->BroadcastNotification ( "jamulusclient/clientIDReceived", QJsonObject{ { "id", iChanID } } );
+    } );
+
+    connect ( pClient, &CClient::Disconnected, [=]() { pRpcServer->BroadcastNotification ( "jamulusclient/disconnected", QJsonObject{} ); } );
+
     pRpcServer->HandleMethod ( "jamulusclient/getClientInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject clientInfo;
-        clientInfo["connected"] = pClient->IsConnected();
-        response["result"]      = clientInfo;
+        QJsonObject result{ { "connected", pClient->IsConnected() } };
+        response["result"] = result;
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/getChannelInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject channelInfo;
-        channelInfo["name"]       = pClient->ChannelInfo.strName;
-        channelInfo["skillLevel"] = FormatSkillLevel ( pClient->ChannelInfo.eSkillLevel );
-        response["result"]        = channelInfo;
+        QJsonObject result{ { "name", pClient->ChannelInfo.strName }, { "skillLevel", FormatSkillLevel ( pClient->ChannelInfo.eSkillLevel ) } };
+        response["result"] = result;
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/setName", [=] ( const QJsonObject& params, QJsonObject& response ) {
@@ -91,6 +98,19 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         }
 
         pClient->SetRemoteInfo();
+        response["result"] = "ok";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusclient/sendChatText", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonMessage = params["message"];
+        if ( !jsonMessage.isString() )
+        {
+            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            return;
+        }
+
+        pClient->CreateChatTextMes ( jsonMessage.toString() );
+
         response["result"] = "ok";
     } );
 }
