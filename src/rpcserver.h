@@ -32,6 +32,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QMap>
+#include <QVector>
 #include <memory>
 
 typedef std::function<void ( const QJsonObject&, QJsonObject& )> CRpcHandler;
@@ -54,7 +55,8 @@ private:
     QTcpServer* pTransportServer;
 
     // A map from method name to handler functions
-    std::map<QString, CRpcHandler> mapMethodHandlers;
+    QMap<QString, CRpcHandler> mapMethodHandlers;
+    QVector<QTcpSocket*>       vecClients;
 
     void ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJsonObject& response );
     void Send ( QTcpSocket* pSocket, const QJsonDocument& aMessage );

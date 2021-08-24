@@ -78,7 +78,15 @@ void CRpcServer::OnNewConnection()
     {
         return;
     }
-    qInfo() << "- accept connection from:" << pSocket->peerAddress().toString();
+
+    qInfo() << "- JSON RPC accepted connection from:" << pSocket->peerAddress().toString();
+    vecClients.append ( pSocket );
+
+    connect ( pSocket, &QTcpSocket::disconnected, [this, pSocket]() {
+        qInfo() << "- JSON RPC connection from:" << pSocket->peerAddress().toString() << "closed";
+        vecClients.removeAll ( pSocket );
+    } );
+
     connect ( pSocket, &QTcpSocket::readyRead, [this, pSocket]() {
         while ( pSocket->canReadLine() )
         {
@@ -174,4 +182,16 @@ void CRpcServer::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJso
     // Call the method handler
     auto methodHandler = mapMethodHandlers[method];
     methodHandler ( params, response );
+}
+
+void CRpcServer::BroadcastNotification ( const QString& strMethod, const QJsonObject& aParams )
+{
+    for ( auto socket : vecClients )
+    {
+        QJsonObject notification;
+        notification["jsonrpc"] = "2.0";
+        notification["method"]  = strMethod;
+        notification["params"]  = aParams;
+        Send ( socket, QJsonDocument ( notification ) );
+    }
 }
