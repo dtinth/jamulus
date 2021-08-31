@@ -37,6 +37,31 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         pRpcServer->BroadcastNotification ( "jamulusclient/clientIDReceived", QJsonObject{ { "id", iChanID } } );
     } );
 
+    connect ( pClient, &CClient::ConClientListMesReceived, [=] ( CVector<CChannelInfo> vecChanInfo ) {
+        QJsonArray arrChanInfo;
+        for ( const auto& chanInfo : vecChanInfo )
+        {
+            QJsonObject objChanInfo{ { "id", chanInfo.iChanID },
+                                     { "name", chanInfo.strName },
+                                     { "skillLevel", FormatSkillLevel ( chanInfo.eSkillLevel ) },
+                                     { "countryId", chanInfo.eCountry },
+                                     { "city", chanInfo.strCity },
+                                     { "instrumentId", chanInfo.iInstrument } };
+            arrChanInfo.append ( objChanInfo );
+        }
+        pRpcServer->BroadcastNotification ( "jamulusclient/clientListReceived", QJsonObject{ { "clients", arrChanInfo } } );
+        arrStoredChanInfo = arrChanInfo;
+    } );
+
+    connect ( pClient, &CClient::CLChannelLevelListReceived, [=] ( CHostAddress /* unused */, CVector<uint16_t> vecLevelList ) {
+        QJsonArray arrLevelList;
+        for ( const auto& level : vecLevelList )
+        {
+            arrLevelList.append ( level );
+        }
+        pRpcServer->BroadcastNotification ( "jamulusclient/channelLevelListReceived", QJsonObject{ { "channelLevelList", arrLevelList } } );
+    } );
+
     connect ( pClient, &CClient::Disconnected, [=]() { pRpcServer->BroadcastNotification ( "jamulusclient/disconnected", QJsonObject{} ); } );
 
     pRpcServer->HandleMethod ( "jamulusclient/getClientInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
@@ -46,6 +71,11 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 
     pRpcServer->HandleMethod ( "jamulusclient/getChannelInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{ { "name", pClient->ChannelInfo.strName }, { "skillLevel", FormatSkillLevel ( pClient->ChannelInfo.eSkillLevel ) } };
+        response["result"] = result;
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusclient/getClientList", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonObject result{ { "clients", arrStoredChanInfo } };
         response["result"] = result;
     } );
 

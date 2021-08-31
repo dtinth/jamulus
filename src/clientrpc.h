@@ -36,4 +36,6 @@ class CClientRpc : public QObject
 public:
     CClientRpc ( CClient* pClient, CRpcServer* pRpcServer );
     virtual ~CClientRpc();
+
+    QJsonArray arrStoredChanInfo;
 };
