@@ -72,7 +72,7 @@ CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
         auto jsonServerName = params["serverName"];
         if ( !jsonServerName.isString() )
         {
-            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: serverName is not a string" );
             return;
         }
 
@@ -84,7 +84,7 @@ CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
         auto jsonWelcomeMessage = params["welcomeMessage"];
         if ( !jsonWelcomeMessage.isString() )
         {
-            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: welcomeMessage is not a string" );
             return;
         }
 

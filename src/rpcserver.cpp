@@ -175,7 +175,7 @@ void CRpcServer::ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJso
     auto jsonParams = message["params"];
     if ( !jsonParams.isObject() )
     {
-        response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+        response["error"] = CreateJsonRpcError ( -32602, "Invalid params: not an object" );
     }
     auto params = jsonParams.toObject();
 
