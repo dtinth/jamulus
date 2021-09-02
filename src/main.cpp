@@ -603,8 +603,13 @@ int main ( int argc, char** argv )
 //CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
     // clang-format on
 
-    CRpcServer RpcServer ( iJsonRpcPortNumber );
-    RpcServer.Start();
+    std::shared_ptr<CRpcServer> pRpcServer;
+
+    if ( iJsonRpcPortNumber != -1 )
+    {
+        pRpcServer = std::shared_ptr<CRpcServer> ( new CRpcServer ( iJsonRpcPortNumber ) );
+        pRpcServer->Start();
+    }
 
     try
     {
@@ -626,7 +631,11 @@ int main ( int argc, char** argv )
                 CInstPictures::UpdateTableOnLanguageChange();
             }
 
-            CClientRpc ClientRpc ( &Client, &RpcServer );
+            std::unique_ptr<CClientRpc> pClientRpc;
+            if ( pRpcServer )
+            {
+                pClientRpc = std::unique_ptr<CClientRpc> ( new CClientRpc ( &Client, pRpcServer.get() ) );
+            }
 
 #ifndef HEADLESS
             if ( bUseGUI )
@@ -677,7 +686,11 @@ int main ( int argc, char** argv )
                              bDelayPan,
                              eLicenceType );
 
-            CServerRpc ServerRpc ( &Server, &RpcServer );
+            std::unique_ptr<CServerRpc> pServerRpc;
+            if ( pRpcServer )
+            {
+                pServerRpc = std::unique_ptr<CServerRpc> ( new CServerRpc ( &Server, pRpcServer.get() ) );
+            }
 
 #ifndef HEADLESS
             if ( bUseGUI )
