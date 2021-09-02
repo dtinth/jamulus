@@ -35,5 +35,4 @@ class CServerRpc : public QObject
 
 public:
     CServerRpc ( CServer* pServer, CRpcServer* pRpcServer );
-    virtual ~CServerRpc();
 };

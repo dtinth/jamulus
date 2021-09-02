@@ -162,8 +162,6 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
     } );
 }
 
-CClientRpc::~CClientRpc() {}
-
 QJsonValue CClientRpc::SerializeSkillLevel ( ESkillLevel eSkillLevel )
 {
     switch ( eSkillLevel )

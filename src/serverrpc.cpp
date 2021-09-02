@@ -92,5 +92,3 @@ CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
         response["result"] = "ok";
     } );
 }
-
-CServerRpc::~CServerRpc() {}
