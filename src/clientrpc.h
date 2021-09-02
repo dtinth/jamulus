@@ -37,5 +37,7 @@ public:
     CClientRpc ( CClient* pClient, CRpcServer* pRpcServer );
     virtual ~CClientRpc();
 
-    QJsonArray arrStoredChanInfo;
+private:
+    QJsonArray        arrStoredChanInfo;
+    static QJsonValue SerializeSkillLevel ( ESkillLevel skillLevel );
 };

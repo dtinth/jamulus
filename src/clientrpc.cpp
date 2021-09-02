@@ -25,8 +25,6 @@
 
 #include "clientrpc.h"
 
-static QJsonValue FormatSkillLevel ( ESkillLevel skillLevel );
-
 CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 {
     connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
@@ -43,7 +41,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         {
             QJsonObject objChanInfo{ { "id", chanInfo.iChanID },
                                      { "name", chanInfo.strName },
-                                     { "skillLevel", FormatSkillLevel ( chanInfo.eSkillLevel ) },
+                                     { "skillLevel", SerializeSkillLevel ( chanInfo.eSkillLevel ) },
                                      { "countryId", chanInfo.eCountry },
                                      { "city", chanInfo.strCity },
                                      { "instrumentId", chanInfo.iInstrument } };
@@ -70,7 +68,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/getChannelInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject result{ { "name", pClient->ChannelInfo.strName }, { "skillLevel", FormatSkillLevel ( pClient->ChannelInfo.eSkillLevel ) } };
+        QJsonObject result{ { "name", pClient->ChannelInfo.strName }, { "skillLevel", SerializeSkillLevel ( pClient->ChannelInfo.eSkillLevel ) } };
         response["result"] = result;
     } );
 
@@ -147,7 +145,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 
 CClientRpc::~CClientRpc() {}
 
-static QJsonValue FormatSkillLevel ( ESkillLevel eSkillLevel )
+QJsonValue CClientRpc::SerializeSkillLevel ( ESkillLevel eSkillLevel )
 {
     switch ( eSkillLevel )
     {
