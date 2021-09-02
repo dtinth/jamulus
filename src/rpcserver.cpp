@@ -55,7 +55,7 @@ void CRpcServer::Start()
     }
 }
 
-QJsonObject CreateJsonRpcError ( int code, QString message )
+QJsonObject CRpcServer::CreateJsonRpcError ( int code, QString message )
 {
     QJsonObject error;
     error["code"]    = QJsonValue ( code );
@@ -63,7 +63,7 @@ QJsonObject CreateJsonRpcError ( int code, QString message )
     return error;
 }
 
-static QJsonObject CreateJsonRpcErrorReply ( int code, QString message )
+QJsonObject CRpcServer::CreateJsonRpcErrorReply ( int code, QString message )
 {
     QJsonObject object;
     object["jsonrpc"] = QJsonValue ( "2.0" );

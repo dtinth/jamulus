@@ -50,6 +50,8 @@ public:
     void HandleMethod ( const QString& strMethod, CRpcHandler pHandler );
     void BroadcastNotification ( const QString& strMethod, const QJsonObject& aParams );
 
+    static QJsonObject CreateJsonRpcError ( int code, QString message );
+
 private:
     int         iPort;
     QTcpServer* pTransportServer;
@@ -61,9 +63,8 @@ private:
     void ProcessMessage ( QTcpSocket* pSocket, QJsonObject message, QJsonObject& response );
     void Send ( QTcpSocket* pSocket, const QJsonDocument& aMessage );
 
+    static QJsonObject CreateJsonRpcErrorReply ( int code, QString message );
+
 protected slots:
     void OnNewConnection();
 };
-
-/* Utilities ********************************************************************/
-QJsonObject CreateJsonRpcError ( int code, QString message );

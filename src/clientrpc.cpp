@@ -100,7 +100,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         auto jsonName = params["name"];
         if ( !jsonName.isString() )
         {
-            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
             return;
         }
 
@@ -121,7 +121,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 
         if ( !jsonSkillLevel.isString() )
         {
-            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
             return;
         }
 
@@ -140,7 +140,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         }
         else
         {
-            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
             return;
         }
 
@@ -152,7 +152,7 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         auto jsonMessage = params["message"];
         if ( !jsonMessage.isString() )
         {
-            response["error"] = CreateJsonRpcError ( -32602, "Invalid params" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params" );
             return;
         }
 
