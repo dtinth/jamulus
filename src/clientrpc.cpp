@@ -28,26 +28,37 @@
 CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
 {
     connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
-        pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived", QJsonObject{ { "text", strChatText } } );
+        pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived",
+                                            QJsonObject{
+                                                { "text", strChatText },
+                                            } );
     } );
 
     connect ( pClient, &CClient::ClientIDReceived, [=] ( int iChanID ) {
-        pRpcServer->BroadcastNotification ( "jamulusclient/clientIDReceived", QJsonObject{ { "id", iChanID } } );
+        pRpcServer->BroadcastNotification ( "jamulusclient/clientIDReceived",
+                                            QJsonObject{
+                                                { "id", iChanID },
+                                            } );
     } );
 
     connect ( pClient, &CClient::ConClientListMesReceived, [=] ( CVector<CChannelInfo> vecChanInfo ) {
         QJsonArray arrChanInfo;
         for ( const auto& chanInfo : vecChanInfo )
         {
-            QJsonObject objChanInfo{ { "id", chanInfo.iChanID },
-                                     { "name", chanInfo.strName },
-                                     { "skillLevel", SerializeSkillLevel ( chanInfo.eSkillLevel ) },
-                                     { "countryId", chanInfo.eCountry },
-                                     { "city", chanInfo.strCity },
-                                     { "instrumentId", chanInfo.iInstrument } };
+            QJsonObject objChanInfo{
+                { "id", chanInfo.iChanID },
+                { "name", chanInfo.strName },
+                { "skillLevel", SerializeSkillLevel ( chanInfo.eSkillLevel ) },
+                { "countryId", chanInfo.eCountry },
+                { "city", chanInfo.strCity },
+                { "instrumentId", chanInfo.iInstrument },
+            };
             arrChanInfo.append ( objChanInfo );
         }
-        pRpcServer->BroadcastNotification ( "jamulusclient/clientListReceived", QJsonObject{ { "clients", arrChanInfo } } );
+        pRpcServer->BroadcastNotification ( "jamulusclient/clientListReceived",
+                                            QJsonObject{
+                                                { "clients", arrChanInfo },
+                                            } );
         arrStoredChanInfo = arrChanInfo;
     } );
 
@@ -57,7 +68,10 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
         {
             arrLevelList.append ( level );
         }
-        pRpcServer->BroadcastNotification ( "jamulusclient/channelLevelListReceived", QJsonObject{ { "channelLevelList", arrLevelList } } );
+        pRpcServer->BroadcastNotification ( "jamulusclient/channelLevelListReceived",
+                                            QJsonObject{
+                                                { "channelLevelList", arrLevelList },
+                                            } );
     } );
 
     connect ( pClient, &CClient::Disconnected, [=]() { pRpcServer->BroadcastNotification ( "jamulusclient/disconnected", QJsonObject{} ); } );
@@ -68,12 +82,17 @@ CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/getChannelInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject result{ { "name", pClient->ChannelInfo.strName }, { "skillLevel", SerializeSkillLevel ( pClient->ChannelInfo.eSkillLevel ) } };
+        QJsonObject result{
+            { "name", pClient->ChannelInfo.strName },
+            { "skillLevel", SerializeSkillLevel ( pClient->ChannelInfo.eSkillLevel ) },
+        };
         response["result"] = result;
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/getClientList", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject result{ { "clients", arrStoredChanInfo } };
+        QJsonObject result{
+            { "clients", arrStoredChanInfo },
+        };
         response["result"] = result;
     } );
 
