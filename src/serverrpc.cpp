@@ -28,13 +28,14 @@
 CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
 {
     pRpcServer->HandleMethod ( "jamulusserver/getServerInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject serverInfo;
-        serverInfo["name"]               = pServer->GetServerName();
-        serverInfo["city"]               = pServer->GetServerCity();
-        serverInfo["country"]            = pServer->GetServerCountry();
-        serverInfo["welcomeMessage"]     = pServer->GetWelcomeMessage();
-        serverInfo["registrationStatus"] = pServer->GetSvrRegStatus();
-        response["result"]               = serverInfo;
+        QJsonObject serverInfo{
+            { "name", pServer->GetServerName() },
+            { "city", pServer->GetServerCity() },
+            { "country", pServer->GetServerCountry() },
+            { "welcomeMessage", pServer->GetWelcomeMessage() },
+            { "registrationStatus", pServer->GetSvrRegStatus() },
+        };
+        response["result"] = serverInfo;
     } );
 
     pRpcServer->HandleMethod ( "jamulusserver/getConnectedClients", [=] ( const QJsonObject& params, QJsonObject& response ) {
@@ -54,11 +55,12 @@ CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
         {
             if ( !( vecHostAddresses[i].InetAddr == QHostAddress ( static_cast<quint32> ( 0 ) ) ) )
             {
-                QJsonObject client;
-                client["address"]          = vecHostAddresses[i].toString ( CHostAddress::SM_IP_PORT );
-                client["name"]             = vecsName[i];
-                client["jitterBufferSize"] = veciJitBufNumFrames[i];
-                client["channels"]         = pServer->GetClientNumAudioChannels ( i );
+                QJsonObject client{
+                    { "address", vecHostAddresses[i].toString ( CHostAddress::SM_IP_PORT ) },
+                    { "name", vecsName[i] },
+                    { "jitterBufferSize", veciJitBufNumFrames[i] },
+                    { "channels", pServer->GetClientNumAudioChannels ( i ) },
+                };
                 clients.append ( client );
             }
         }
