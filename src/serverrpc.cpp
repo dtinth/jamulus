@@ -26,6 +26,11 @@
 
 CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServer ) : QObject ( parent )
 {
+    pRpcServer->HandleMethod ( "jamulus/getMode", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonObject result{ { "mode", "server" } };
+        response["result"] = result;
+    } );
+
     pRpcServer->HandleMethod ( "jamulusserver/getServerInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject serverInfo{
             { "name", pServer->GetServerName() },

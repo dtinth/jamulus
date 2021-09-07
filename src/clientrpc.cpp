@@ -75,6 +75,11 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
 
     connect ( pClient, &CClient::Disconnected, [=]() { pRpcServer->BroadcastNotification ( "jamulusclient/disconnected", QJsonObject{} ); } );
 
+    pRpcServer->HandleMethod ( "jamulus/getMode", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonObject result{ { "mode", "client" } };
+        response["result"] = result;
+    } );
+
     pRpcServer->HandleMethod ( "jamulusclient/getClientInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{ { "connected", pClient->IsConnected() } };
         response["result"] = result;
