@@ -78,7 +78,7 @@ int main ( int argc, char** argv )
     bool         bCustomPortNumberGiven      = false;
     int          iNumServerChannels          = DEFAULT_USED_NUM_CHANNELS;
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
-    int          iJsonRpcPortNumber          = INVALID_PORT_NUMBER;
+    int          iJsonRpcPortNumber          = INVALID_PORT;
     quint16      iQosNumber                  = DEFAULT_QOS_NUMBER;
     ELicenceType eLicenceType                = LT_NO_LICENCE;
     QString      strMIDISetup                = "";
@@ -605,7 +605,7 @@ int main ( int argc, char** argv )
 
     CRpcServer* pRpcServer;
 
-    if ( iJsonRpcPortNumber != INVALID_PORT_NUMBER )
+    if ( iJsonRpcPortNumber != INVALID_PORT )
     {
         pRpcServer = new CRpcServer ( pApp, iJsonRpcPortNumber );
         pRpcServer->Start();
