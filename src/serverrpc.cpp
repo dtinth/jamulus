@@ -25,7 +25,7 @@
 
 #include "serverrpc.h"
 
-CServerRpc::CServerRpc ( CServer* pServer, CRpcServer* pRpcServer )
+CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServer ) : QObject ( parent )
 {
     pRpcServer->HandleMethod ( "jamulusserver/getServerInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject serverInfo{

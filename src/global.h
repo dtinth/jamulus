@@ -106,6 +106,9 @@ LED bar:      lbr
 #define CENTSERV_GENRE_CLASSICAL_FOLK "classical.jamulus.io:22524"
 #define CENTSERV_GENRE_CHORAL         "choral.jamulus.io:22724"
 
+// use the special invalid port number to disable the server
+#define INVALID_PORT_NUMBER -1
+
 // servers to check for new versions
 #define UPDATECHECK1_ADDRESS "updatecheck1.jamulus.io"
 #define UPDATECHECK2_ADDRESS "updatecheck2.jamulus.io"

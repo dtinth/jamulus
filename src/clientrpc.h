@@ -34,7 +34,7 @@ class CClientRpc : public QObject
     Q_OBJECT
 
 public:
-    CClientRpc ( CClient* pClient, CRpcServer* pRpcServer );
+    CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServer );
 
 private:
     QJsonArray        arrStoredChanInfo;

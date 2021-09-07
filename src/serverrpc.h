@@ -34,5 +34,5 @@ class CServerRpc : public QObject
     Q_OBJECT
 
 public:
-    CServerRpc ( CServer* pServer, CRpcServer* pRpcServer );
+    CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServer );
 };

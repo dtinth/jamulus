@@ -78,7 +78,7 @@ int main ( int argc, char** argv )
     bool         bCustomPortNumberGiven      = false;
     int          iNumServerChannels          = DEFAULT_USED_NUM_CHANNELS;
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
-    int          iJsonRpcPortNumber          = -1;
+    int          iJsonRpcPortNumber          = INVALID_PORT_NUMBER;
     quint16      iQosNumber                  = DEFAULT_QOS_NUMBER;
     ELicenceType eLicenceType                = LT_NO_LICENCE;
     QString      strMIDISetup                = "";
@@ -603,11 +603,11 @@ int main ( int argc, char** argv )
 //CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
     // clang-format on
 
-    std::shared_ptr<CRpcServer> pRpcServer;
+    CRpcServer* pRpcServer;
 
-    if ( iJsonRpcPortNumber != -1 )
+    if ( iJsonRpcPortNumber != INVALID_PORT_NUMBER )
     {
-        pRpcServer = std::shared_ptr<CRpcServer> ( new CRpcServer ( iJsonRpcPortNumber ) );
+        pRpcServer = new CRpcServer ( pApp, iJsonRpcPortNumber );
         pRpcServer->Start();
     }
 
@@ -631,10 +631,9 @@ int main ( int argc, char** argv )
                 CInstPictures::UpdateTableOnLanguageChange();
             }
 
-            std::unique_ptr<CClientRpc> pClientRpc;
             if ( pRpcServer )
             {
-                pClientRpc = std::unique_ptr<CClientRpc> ( new CClientRpc ( &Client, pRpcServer.get() ) );
+                new CClientRpc ( pRpcServer, &Client, pRpcServer );
             }
 
 #ifndef HEADLESS
@@ -686,10 +685,9 @@ int main ( int argc, char** argv )
                              bDelayPan,
                              eLicenceType );
 
-            std::unique_ptr<CServerRpc> pServerRpc;
             if ( pRpcServer )
             {
-                pServerRpc = std::unique_ptr<CServerRpc> ( new CServerRpc ( &Server, pRpcServer.get() ) );
+                new CServerRpc ( pRpcServer, &Server, pRpcServer );
             }
 
 #ifndef HEADLESS

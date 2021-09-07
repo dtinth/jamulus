@@ -43,7 +43,7 @@ class CRpcServer : public QObject
     Q_OBJECT
 
 public:
-    CRpcServer ( int iPort );
+    CRpcServer ( QObject* parent, int iPort );
     virtual ~CRpcServer();
 
     void Start();

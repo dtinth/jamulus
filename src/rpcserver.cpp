@@ -25,7 +25,7 @@
 
 #include "rpcserver.h"
 
-CRpcServer::CRpcServer ( int iPort ) : iPort ( iPort ), pTransportServer ( new QTcpServer ( this ) )
+CRpcServer::CRpcServer ( QObject* parent, int iPort ) : QObject ( parent ), iPort ( iPort ), pTransportServer ( new QTcpServer ( this ) )
 {
     connect ( pTransportServer, &QTcpServer::newConnection, this, &CRpcServer::OnNewConnection );
 }

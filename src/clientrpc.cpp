@@ -25,7 +25,7 @@
 
 #include "clientrpc.h"
 
-CClientRpc::CClientRpc ( CClient* pClient, CRpcServer* pRpcServer )
+CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServer ) : QObject ( parent )
 {
     connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
         pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived",
