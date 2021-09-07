@@ -46,7 +46,7 @@ void CRpcServer::Start()
     }
     if ( pTransportServer->listen ( QHostAddress ( "127.0.0.1" ), iPort ) )
     {
-        qInfo() << "- JSON RPC server started on port" << iPort;
+        qInfo() << "- JSON RPC server started on port" << pTransportServer->serverPort();
     }
     else
     {
