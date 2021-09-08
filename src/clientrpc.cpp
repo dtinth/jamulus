@@ -29,7 +29,7 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
     connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
         pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived",
                                             QJsonObject{
-                                                { "text", strChatText },
+                                                { "chatText", strChatText },
                                             } );
     } );
 
@@ -153,10 +153,10 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
     } );
 
     pRpcServer->HandleMethod ( "jamulusclient/sendChatText", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        auto jsonMessage = params["message"];
+        auto jsonMessage = params["chatText"];
         if ( !jsonMessage.isString() )
         {
-            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: message is not a string" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: chatText is not a string" );
             return;
         }
 
