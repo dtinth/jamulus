@@ -34,7 +34,7 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
     } );
 
     connect ( pClient, &CClient::ClientIDReceived, [=] ( int iChanID ) {
-        pRpcServer->BroadcastNotification ( "jamulusclient/clientIDReceived",
+        pRpcServer->BroadcastNotification ( "jamulusclient/connected",
                                             QJsonObject{
                                                 { "id", iChanID },
                                             } );
