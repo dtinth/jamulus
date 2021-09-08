@@ -69,7 +69,10 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
             }
         }
 
-        response["result"] = clients;
+        QJsonObject result{
+            { "clients", clients },
+        };
+        response["result"] = result;
     } );
 
     pRpcServer->HandleMethod ( "jamulusserver/setServerName", [=] ( const QJsonObject& params, QJsonObject& response ) {
