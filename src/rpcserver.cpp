@@ -78,12 +78,13 @@ void CRpcServer::OnNewConnection()
         return;
     }
 
-    qInfo() << "- JSON RPC accepted connection from:" << pSocket->peerAddress().toString();
+    qDebug() << "- JSON RPC accepted connection from:" << pSocket->peerAddress().toString();
     vecClients.append ( pSocket );
 
     connect ( pSocket, &QTcpSocket::disconnected, [this, pSocket]() {
-        qInfo() << "- JSON RPC connection from:" << pSocket->peerAddress().toString() << "closed";
+        qDebug() << "- JSON RPC connection from:" << pSocket->peerAddress().toString() << "closed";
         vecClients.removeAll ( pSocket );
+        pSocket->deleteLater();
     } );
 
     connect ( pSocket, &QTcpSocket::readyRead, [this, pSocket]() {
