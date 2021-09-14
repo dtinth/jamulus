@@ -31,18 +31,7 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
         response["result"] = result;
     } );
 
-    pRpcServer->HandleMethod ( "jamulusserver/getServerInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
-        QJsonObject serverInfo{
-            { "name", pServer->GetServerName() },
-            { "city", pServer->GetServerCity() },
-            { "country", pServer->GetServerCountry() },
-            { "welcomeMessage", pServer->GetWelcomeMessage() },
-            { "registrationStatus", pServer->GetSvrRegStatus() },
-        };
-        response["result"] = serverInfo;
-    } );
-
-    pRpcServer->HandleMethod ( "jamulusserver/getConnectedClients", [=] ( const QJsonObject& params, QJsonObject& response ) {
+    pRpcServer->HandleMethod ( "jamulusserver/getServerStatus", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonArray            clients;
         CVector<CHostAddress> vecHostAddresses;
         CVector<QString>      vecsName;
@@ -70,6 +59,11 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
         }
 
         QJsonObject result{
+            { "name", pServer->GetServerName() },
+            { "city", pServer->GetServerCity() },
+            { "countryId", pServer->GetServerCountry() },
+            { "welcomeMessage", pServer->GetWelcomeMessage() },
+            { "registrationStatus", pServer->GetSvrRegStatus() },
             { "clients", clients },
         };
         response["result"] = result;
