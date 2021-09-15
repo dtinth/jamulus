@@ -26,6 +26,9 @@
 
 CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServer ) : QObject ( parent )
 {
+    /// @rpc_notification jamulusclient/chatTextReceived
+    /// @brief Emitted when a chat text is received.
+    /// @param {string} params.chatText - The chat text.
     connect ( pClient, &CClient::ChatTextReceived, [=] ( QString strChatText ) {
         pRpcServer->BroadcastNotification ( "jamulusclient/chatTextReceived",
                                             QJsonObject{
@@ -33,6 +36,9 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
                                             } );
     } );
 
+    /// @rpc_notification jamulusclient/connected
+    /// @brief Emitted when the client is connected to the server.
+    /// @param {number} params.id - The channel ID assigned to the client.
     connect ( pClient, &CClient::ClientIDReceived, [=] ( int iChanID ) {
         pRpcServer->BroadcastNotification ( "jamulusclient/connected",
                                             QJsonObject{
@@ -40,6 +46,15 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
                                             } );
     } );
 
+    /// @rpc_notification jamulusclient/clientListReceived
+    /// @brief Emitted when the client list is received.
+    /// @param {array} params.clients - The client list.
+    /// @param {number} params.clients[*].id - The channel ID.
+    /// @param {string} params.clients[*].name - The musician’s name.
+    /// @param {string} params.clients[*].skillLevel - The musician’s skill level (beginner, intermediate, expert, or null).
+    /// @param {number} params.clients[*].countryId - The musician’s country ID (see QLocale::Country).
+    /// @param {string} params.clients[*].city - The musician’s city.
+    /// @param {number} params.clients[*].instrumentId - The musician’s instrument ID (see CInstPictures::GetTable).
     connect ( pClient, &CClient::ConClientListMesReceived, [=] ( CVector<CChannelInfo> vecChanInfo ) {
         QJsonArray arrChanInfo;
         for ( const auto& chanInfo : vecChanInfo )
@@ -61,6 +76,11 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
         arrStoredChanInfo = arrChanInfo;
     } );
 
+    /// @rpc_notification jamulusclient/channelLevelListReceived
+    /// @brief Emitted when the channel level list is received.
+    /// @param {array} params.channelLevelList - The channel level list.
+    ///  Each item corresponds to the respective client retrieved from the jamulusclient/clientListReceived notification.
+    /// @param {number} params.channelLevelList[*] - The channel level, an integer between 0 and 9.
     connect ( pClient, &CClient::CLChannelLevelListReceived, [=] ( CHostAddress /* unused */, CVector<uint16_t> vecLevelList ) {
         QJsonArray arrLevelList;
         for ( const auto& level : vecLevelList )
@@ -73,18 +93,34 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
                                             } );
     } );
 
+    /// @rpc_notification jamulusclient/connected
+    /// @brief Emitted when the client is disconnected from the server.
+    /// @param {object} params - No parameters (empty object).
     connect ( pClient, &CClient::Disconnected, [=]() { pRpcServer->BroadcastNotification ( "jamulusclient/disconnected", QJsonObject{} ); } );
 
+    /// @rpc_method jamulus/getMode
+    /// @brief Returns the current mode, i.e. whether Jamulus is running as a server or client.
+    /// @param {object} params - No parameters (empty object).
+    /// @result {string} result.mode - The current mode (server or client).
     pRpcServer->HandleMethod ( "jamulus/getMode", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{ { "mode", "client" } };
         response["result"] = result;
     } );
 
+    /// @rpc_method jamulusclient/getClientInfo
+    /// @brief Returns the client information.
+    /// @param {object} params - No parameters (empty object).
+    /// @result {boolean} result.connected - Whether the client is connected to the server.
     pRpcServer->HandleMethod ( "jamulusclient/getClientInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{ { "connected", pClient->IsConnected() } };
         response["result"] = result;
     } );
 
+    /// @rpc_method jamulusclient/getChannelInfo
+    /// @brief Returns your profile information.
+    /// @param {object} params - No parameters (empty object).
+    /// @result {string} result.name - Your name.
+    /// @result {string} result.skillLevel - Your skill level (beginner, intermediate, expert, or null).
     pRpcServer->HandleMethod ( "jamulusclient/getChannelInfo", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{
             { "name", pClient->ChannelInfo.strName },
@@ -93,6 +129,10 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
         response["result"] = result;
     } );
 
+    /// @rpc_method jamulusclient/getClientList
+    /// @brief Returns the client list.
+    /// @param {object} params - No parameters (empty object).
+    /// @result {array} result.clients - The client list. See jamulusclient/clientListReceived for the format.
     pRpcServer->HandleMethod ( "jamulusclient/getClientList", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{
             { "clients", arrStoredChanInfo },
@@ -100,6 +140,10 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
         response["result"] = result;
     } );
 
+    /// @rpc_method jamulusclient/setName
+    /// @brief Sets your name.
+    /// @param {string} params.name - The new name.
+    /// @result {string} result - Always "ok".
     pRpcServer->HandleMethod ( "jamulusclient/setName", [=] ( const QJsonObject& params, QJsonObject& response ) {
         auto jsonName = params["name"];
         if ( !jsonName.isString() )
@@ -114,6 +158,10 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
         response["result"] = "ok";
     } );
 
+    /// @rpc_method jamulusclient/setSkillLevel
+    /// @brief Sets your skill level.
+    /// @param {string} params.skillLevel - The new skill level (beginner, intermediate, expert, or null).
+    /// @result {string} result - Always "ok".
     pRpcServer->HandleMethod ( "jamulusclient/setSkillLevel", [=] ( const QJsonObject& params, QJsonObject& response ) {
         auto jsonSkillLevel = params["skillLevel"];
         if ( jsonSkillLevel.isNull() )
@@ -152,6 +200,10 @@ CClientRpc::CClientRpc ( QObject* parent, CClient* pClient, CRpcServer* pRpcServ
         response["result"] = "ok";
     } );
 
+    /// @rpc_method jamulusclient/sendChatText
+    /// @brief Sends a chat text message.
+    /// @param {string} params.chatText - The chat text message.
+    /// @result {string} result - Always "ok".
     pRpcServer->HandleMethod ( "jamulusclient/sendChatText", [=] ( const QJsonObject& params, QJsonObject& response ) {
         auto jsonMessage = params["chatText"];
         if ( !jsonMessage.isString() )

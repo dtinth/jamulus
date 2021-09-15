@@ -29,6 +29,10 @@ CRpcServer::CRpcServer ( QObject* parent, int iPort ) : QObject ( parent ), iPor
 {
     connect ( pTransportServer, &QTcpServer::newConnection, this, &CRpcServer::OnNewConnection );
 
+    /// @rpc_method jamulus/getVersion
+    /// @brief Returns Jamulus version.
+    /// @param {object} params - No parameters (empty object).
+    /// @result {string} result.version - The Jamulus version.
     HandleMethod ( "jamulus/getVersion", [=] ( const QJsonObject& params, QJsonObject& response ) {
         QJsonObject result{ { "version", VERSION } };
         response["result"] = result;
