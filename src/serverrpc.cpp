@@ -1,0 +1,132 @@
+/******************************************************************************\
+ * Copyright (c) 2021
+ *
+ * Author(s):
+ *  dtinth
+ *
+ ******************************************************************************
+ *
+ * This program is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at your option) any later
+ * version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+ *
+ \******************************************************************************/
+
+#include "serverrpc.h"
+
+CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServer ) : QObject ( parent )
+{
+    pRpcServer->HandleMethod ( "jamulus/getMode", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonObject result{ { "mode", "server" } };
+        response["result"] = result;
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/getServerStatus", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        QJsonArray            clients;
+        CVector<CHostAddress> vecHostAddresses;
+        CVector<QString>      vecsName;
+        CVector<int>          veciJitBufNumFrames;
+        CVector<int>          veciNetwFrameSizeFact;
+
+        pServer->GetConCliParam ( vecHostAddresses, vecsName, veciJitBufNumFrames, veciNetwFrameSizeFact );
+
+        // we assume that all vectors have the same length
+        const int iNumChannels = vecHostAddresses.Size();
+
+        // fill list with connected clients
+        for ( int i = 0; i < iNumChannels; i++ )
+        {
+            if ( !( vecHostAddresses[i].InetAddr == QHostAddress ( static_cast<quint32> ( 0 ) ) ) )
+            {
+                QJsonObject client{
+                    { "address", vecHostAddresses[i].toString ( CHostAddress::SM_IP_PORT ) },
+                    { "name", vecsName[i] },
+                    { "jitterBufferSize", veciJitBufNumFrames[i] },
+                    { "channels", pServer->GetClientNumAudioChannels ( i ) },
+                };
+                clients.append ( client );
+            }
+        }
+
+        // create recorder state object
+        QJsonObject recorder{
+            { "initialised", pServer->GetRecorderInitialised() },
+            { "errorMessage", pServer->GetRecorderErrMsg() },
+            { "enabled", pServer->GetRecordingEnabled() },
+            { "recordingDirectory", pServer->GetRecordingDir() },
+        };
+
+        // create result object
+        QJsonObject result{
+            { "name", pServer->GetServerName() },
+            { "city", pServer->GetServerCity() },
+            { "countryId", pServer->GetServerCountry() },
+            { "welcomeMessage", pServer->GetWelcomeMessage() },
+            { "registrationStatus", pServer->GetSvrRegStatus() },
+            { "clients", clients },
+            { "recorder", recorder },
+        };
+        response["result"] = result;
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/setServerName", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonServerName = params["serverName"];
+        if ( !jsonServerName.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: serverName is not a string" );
+            return;
+        }
+
+        pServer->SetServerName ( jsonServerName.toString() );
+        response["result"] = "ok";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/setWelcomeMessage", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonWelcomeMessage = params["welcomeMessage"];
+        if ( !jsonWelcomeMessage.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: welcomeMessage is not a string" );
+            return;
+        }
+
+        pServer->SetWelcomeMessage ( jsonWelcomeMessage.toString() );
+        response["result"] = "ok";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/setRecordingDirectory", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonRecordingDirectory = params["recordingDirectory"];
+        if ( !jsonRecordingDirectory.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: jsonRecordingDirectory is not a string" );
+            return;
+        }
+
+        pServer->SetRecordingDir ( jsonRecordingDirectory.toString() );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/startRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->SetEnableRecording ( true );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/stopRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->SetEnableRecording ( false );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/restartRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->RequestNewRecording();
+        response["result"] = "acknowledged";
+    } );
+}

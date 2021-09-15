@@ -41,6 +41,10 @@
 #    include "mac/activity.h"
 extern void qt_set_sequence_auto_mnemonic ( bool bEnable );
 #endif
+#include <memory>
+#include "rpcserver.h"
+#include "serverrpc.h"
+#include "clientrpc.h"
 
 // Implementation **************************************************************
 
@@ -84,6 +88,7 @@ int main ( int argc, char** argv )
     bool         bEnableIPv6                 = false;
     int          iNumServerChannels          = DEFAULT_USED_NUM_CHANNELS;
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
+    int          iJsonRpcPortNumber          = INVALID_PORT;
     quint16      iQosNumber                  = DEFAULT_QOS_NUMBER;
     ELicenceType eLicenceType                = LT_NO_LICENCE;
     QString      strMIDISetup                = "";
@@ -159,6 +164,15 @@ int main ( int argc, char** argv )
             bCustomPortNumberGiven = true;
             qInfo() << qUtf8Printable ( QString ( "- selected port number: %1" ).arg ( iPortNumber ) );
             CommandLineOptions << "--port";
+            continue;
+        }
+
+        // JSON RPC port number ------------------------------------------------
+        if ( GetNumericArgument ( argc, argv, i, "--jsonrpcport", "--jsonrpcport", 0, 65535, rDbleArgument ) )
+        {
+            iJsonRpcPortNumber = static_cast<quint16> ( rDbleArgument );
+            qInfo() << qUtf8Printable ( QString ( "- JSON RPC port number: %1" ).arg ( iJsonRpcPortNumber ) );
+            CommandLineOptions << "--jsonrpcport";
             continue;
         }
 
@@ -789,6 +803,14 @@ int main ( int argc, char** argv )
 //CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
     // clang-format on
 
+    CRpcServer* pRpcServer = nullptr;
+
+    if ( iJsonRpcPortNumber != INVALID_PORT )
+    {
+        pRpcServer = new CRpcServer ( pApp, iJsonRpcPortNumber );
+        pRpcServer->Start();
+    }
+
     try
     {
         if ( bIsClient )
@@ -813,6 +835,11 @@ int main ( int argc, char** argv )
             {
                 CLocale::LoadTranslation ( Settings.strLanguage, pApp );
                 CInstPictures::UpdateTableOnLanguageChange();
+            }
+
+            if ( pRpcServer )
+            {
+                new CClientRpc ( pRpcServer, &Client, pRpcServer );
             }
 
 #ifndef HEADLESS
@@ -866,6 +893,11 @@ int main ( int argc, char** argv )
                              bDelayPan,
                              bEnableIPv6,
                              eLicenceType );
+
+            if ( pRpcServer )
+            {
+                new CServerRpc ( pRpcServer, &Server, pRpcServer );
+            }
 
 #ifndef HEADLESS
             if ( bUseGUI )
@@ -953,6 +985,8 @@ QString UsageArguments ( char** argv )
            "                        (not supported for headless server mode)\n"
            "  -n, --nogui           disable GUI (\"headless\")\n"
            "  -p, --port            set the local port number\n"
+           "      --jsonrpcport     enable JSON-RPC server, set TCP port number\n"
+           "                        (only accessible from localhost)\n"
            "  -Q, --qos             set the QoS value. Default is 128. Disable with 0\n"
            "                        (see the Jamulus website to enable QoS on Windows)\n"
            "  -t, --notranslation   disable translation (use English language)\n"
