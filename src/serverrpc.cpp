@@ -58,6 +58,15 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
             }
         }
 
+        // create recorder state object
+        QJsonObject recorder{
+            { "initialised", pServer->GetRecorderInitialised() },
+            { "errorMessage", pServer->GetRecorderErrMsg() },
+            { "enabled", pServer->GetRecordingEnabled() },
+            { "recordingDirectory", pServer->GetRecordingDir() },
+        };
+
+        // create result object
         QJsonObject result{
             { "name", pServer->GetServerName() },
             { "city", pServer->GetServerCity() },
@@ -65,6 +74,7 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
             { "welcomeMessage", pServer->GetWelcomeMessage() },
             { "registrationStatus", pServer->GetSvrRegStatus() },
             { "clients", clients },
+            { "recorder", recorder },
         };
         response["result"] = result;
     } );
@@ -91,5 +101,32 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
 
         pServer->SetWelcomeMessage ( jsonWelcomeMessage.toString() );
         response["result"] = "ok";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/setRecordingDirectory", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonRecordingDirectory = params["recordingDirectory"];
+        if ( !jsonRecordingDirectory.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: jsonRecordingDirectory is not a string" );
+            return;
+        }
+
+        pServer->SetRecordingDir ( jsonRecordingDirectory.toString() );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/startRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->SetEnableRecording ( true );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/stopRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->SetEnableRecording ( false );
+        response["result"] = "acknowledged";
+    } );
+
+    pRpcServer->HandleMethod ( "jamulusserver/restartRecording", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        pServer->RequestNewRecording();
+        response["result"] = "acknowledged";
     } );
 }
