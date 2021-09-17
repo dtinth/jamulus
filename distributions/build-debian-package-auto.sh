@@ -14,7 +14,9 @@ VERSION=$(cat Jamulus.pro | grep -oP 'VERSION = \K\w[^\s\\]*')
 # patch changelog (with hack)
 
 DATE=$(date "+%a, %d %b %Y %T" )
-echo "jamulus (${VERSION}-0) UNRELEASED; urgency=medium" > debian/changelog
+HEAD_COMMIT_DATE_YYYYMMDD=$(git log --pretty=format:'%cd' --date=format:'%Y%m%d~%H%M%S' -n 1)
+GIT_COMMIT_COUNT=$(git rev-list --count HEAD)
+echo "jamulus (${VERSION}+${HEAD_COMMIT_DATE_YYYYMMDD}~${GIT_COMMIT_COUNT}-0) UNRELEASED; urgency=medium" > debian/changelog
 echo "" >> debian/changelog
 perl .github/actions_scripts/getChangelog.pl ChangeLog ${VERSION} >> debian/changelog
 echo "" >> debian/changelog
