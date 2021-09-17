@@ -1,0 +1,18 @@
+= dtinth’s fork
+
+The goal of this Jamulus fork is focused on improving ways for external apps to programmatically interface Jamulus (both client and server) through a https://github.com/jamulussoftware/jamulus/pull/1975[JSON-RPC API] and other features.
+
+NOTE: Due to the stacked diff workflow that I am using, there will be a lot of force-pushes to this branch.
+
+== Differences from upstream
+
+* `json-rpc-docs` Documentation for the JSON-RPC API.
+* `json-rpc-fixes` Updates to JSON-RPC API after https://github.com/jamulussoftware/jamulus/pull/1975
+* `json-rpc-chat` Chat-related JSON-RPC API.
+* `stereo-mix` A stereo mix server.
+
+== Updating from upstream
+
+ $ git fetch upstream master
+ $ git rebase -i FETCH_HEAD
+ $ git push -f origin FETCH_HEAD:dtinth_base HEAD:dtinth
