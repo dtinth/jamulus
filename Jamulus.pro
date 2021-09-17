@@ -429,6 +429,7 @@ HEADERS += src/buffer.h \
     src/serverlogging.h \
     src/serverrpc.h \
     src/rpcserver.h \
+    src/stereomixserver.h \
     src/settings.h \
     src/socket.h \
     src/soundbase.h \
@@ -533,6 +534,7 @@ SOURCES += src/buffer.cpp \
     src/serverlogging.cpp \
     src/serverrpc.cpp \
     src/rpcserver.cpp \
+    src/stereomixserver.cpp \
     src/settings.cpp \
     src/signalhandler.cpp \
     src/socket.cpp \
