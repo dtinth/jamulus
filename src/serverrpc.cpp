@@ -41,6 +41,7 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
     /// @result {string} result.welcomeMessage - The server welcome message.
     /// @result {string} result.registrationStatus - The server registration status (see ESvrRegStatus).
     /// @result {array} result.clients - The list of connected clients.
+    /// @result {number} result.clients[*].id - The client’s channel id.
     /// @result {string} result.clients[*].address - The client’s address (ip:port).
     /// @result {string} result.clients[*].name - The client’s name.
     /// @result {number} result.clients[*].jitterBufferSize - The client’s jitter buffer size.
@@ -68,6 +69,7 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
             if ( !( vecHostAddresses[i].InetAddr == QHostAddress ( static_cast<quint32> ( 0 ) ) ) )
             {
                 QJsonObject client{
+                    { "id", i },
                     { "address", vecHostAddresses[i].toString ( CHostAddress::SM_IP_PORT ) },
                     { "name", vecsName[i] },
                     { "jitterBufferSize", veciJitBufNumFrames[i] },

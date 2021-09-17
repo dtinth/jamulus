@@ -212,6 +212,7 @@ Results:
 | result.welcomeMessage | string | The server welcome message. |
 | result.registrationStatus | string | The server registration status (see ESvrRegStatus). |
 | result.clients | array | The list of connected clients. |
+| result.clients[*].id | number | The client’s channel id. |
 | result.clients[*].address | string | The client’s address (ip:port). |
 | result.clients[*].name | string | The client’s name. |
 | result.clients[*].jitterBufferSize | number | The client’s jitter buffer size. |
