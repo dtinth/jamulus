@@ -255,6 +255,10 @@ public:
 
     int GetClientNumAudioChannels ( const int iChanNum ) { return vecChannels[iChanNum].GetNumAudioChannels(); }
 
+    // Programmatic access to chat system --------------------------------------
+    void BroadcastChatText ( const QString& strChatTextHtml );
+    void SendChatText ( const int iChanNum, const QString& strChatTextHtml );
+
 protected:
     // access functions for actual channels
     bool IsConnected ( const int iChanNum ) { return vecChannels[iChanNum].IsConnected(); }
@@ -412,6 +416,9 @@ signals:
     void StopRecorder();
     void RecordingSessionStarted ( QString sessionDir );
     void EndRecorderThread();
+
+    // programmatic access to chat system
+    void ChatTextReceived ( const int iChanNum, const QString& strName, const QString& strChatText );
 
 public slots:
     void OnTimer();

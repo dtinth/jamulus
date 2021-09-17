@@ -175,6 +175,23 @@ Results:
 | result | string | Always "ok". |
 
 
+### jamulusserver/broadcastChatText
+
+Broadcasts a chat text to all clients.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.chatTextHtml | string | The chat text to send (HTML is allowed). |
+
+Results:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| result | string | Always "ok". |
+
+
 ### jamulusserver/getServerStatus
 
 Returns the server status, including the list of connected clients and the recorder state.
@@ -195,7 +212,7 @@ Results:
 | result.welcomeMessage | string | The server welcome message. |
 | result.registrationStatus | string | The server registration status (see ESvrRegStatus). |
 | result.clients | array | The list of connected clients. |
-| result.clients[*].address | object | The client’s address (ip:port). |
+| result.clients[*].address | string | The client’s address (ip:port). |
 | result.clients[*].name | string | The client’s name. |
 | result.clients[*].jitterBufferSize | number | The client’s jitter buffer size. |
 | result.clients[*].channels | number | The number of audio channels of the client. |
@@ -221,6 +238,24 @@ Results:
 | Name | Type | Description |
 | --- | --- | --- |
 | result | string | Always "acknowledged".   To check if the recording was restarted or if there is any error, call `jamulusserver/getServerStatus` again. |
+
+
+### jamulusserver/sendChatText
+
+Sends a chat text to a specific client.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.channelId | number | The channel ID. |
+| params.chatTextHtml | string | The chat text to send (HTML is allowed). |
+
+Results:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| result | string | Always "ok". |
 
 
 ### jamulusserver/setRecordingDirectory
@@ -369,5 +404,18 @@ Parameters:
 | Name | Type | Description |
 | --- | --- | --- |
 | params | object | No parameters (empty object). |
+
+
+### jamulusserver/chatTextReceived
+
+Emitted when a client sends chat text to the server.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.channel.id | number | The channel ID. |
+| params.channel.name | string | The channel name. |
+| params.chatText | string | The chat text (not HTML-escaped). |
 
 

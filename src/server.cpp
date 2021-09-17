@@ -1432,13 +1432,27 @@ void CServer::CreateAndSendChatTextForAllConChannels ( const int iCurChanID, con
     const QString strActualMessageText = "<font color=\"" + sCurColor + "\">(" + QTime::currentTime().toString ( "hh:mm:ss AP" ) + ") <b>" +
                                          ChanName.toHtmlEscaped() + "</b></font> " + strChatText.toHtmlEscaped();
 
+    emit ChatTextReceived ( iCurChanID, ChanName, strChatText );
+    BroadcastChatText ( strActualMessageText );
+}
+
+void CServer::BroadcastChatText ( const QString& strChatTextHtml )
+{
     // Send chat text to all connected clients ---------------------------------
     for ( int i = 0; i < iMaxNumChannels; i++ )
     {
-        if ( vecChannels[i].IsConnected() )
+        SendChatText ( i, strChatTextHtml );
+    }
+}
+
+void CServer::SendChatText ( const int iChanNum, const QString& strChatTextHtml )
+{
+    if ( iChanNum >= 0 && iChanNum < iMaxNumChannels )
+    {
+        if ( vecChannels[iChanNum].IsConnected() )
         {
             // send message
-            vecChannels[i].CreateChatTextMes ( strActualMessageText );
+            vecChannels[iChanNum].CreateChatTextMes ( strChatTextHtml );
         }
     }
 }

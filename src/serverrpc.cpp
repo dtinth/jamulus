@@ -176,4 +176,62 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
         pServer->RequestNewRecording();
         response["result"] = "acknowledged";
     } );
+
+    /// @rpc_notification jamulusserver/chatTextReceived
+    /// @brief Emitted when a client sends chat text to the server.
+    /// @param {number} params.channel.id - The channel ID.
+    /// @param {string} params.channel.name - The channel name.
+    /// @param {string} params.chatText - The chat text (not HTML-escaped).
+    connect ( pServer, &CServer::ChatTextReceived, [=] ( const int iChanNum, const QString& strName, const QString& strChatText ) {
+        QJsonObject channel{
+            { "id", iChanNum },
+            { "name", strName },
+        };
+        pRpcServer->BroadcastNotification ( "jamulusserver/chatTextReceived",
+                                            QJsonObject{
+                                                { "channel", channel },
+                                                { "chatText", strChatText },
+                                            } );
+    } );
+
+    /// @rpc_method jamulusserver/broadcastChatText
+    /// @brief Broadcasts a chat text to all clients.
+    /// @param {string} params.chatTextHtml - The chat text to send (HTML is allowed).
+    /// @result {string} result - Always "ok".
+    pRpcServer->HandleMethod ( "jamulusserver/broadcastChatText", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonChatTextHtml = params["chatTextHtml"];
+        if ( !jsonChatTextHtml.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: chatTextHtml is not a string" );
+            return;
+        }
+
+        pServer->BroadcastChatText ( jsonChatTextHtml.toString() );
+        response["result"] = "ok";
+    } );
+
+    /// @rpc_method jamulusserver/sendChatText
+    /// @brief Sends a chat text to a specific client.
+    /// @param {number} params.channelId - The channel ID.
+    /// @param {string} params.chatTextHtml - The chat text to send (HTML is allowed).
+    /// @result {string} result - Always "ok".
+    pRpcServer->HandleMethod ( "jamulusserver/sendChatText", [=] ( const QJsonObject& params, QJsonObject& response ) {
+        auto jsonChatTextHtml = params["chatTextHtml"];
+        if ( !jsonChatTextHtml.isString() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: chatTextHtml is not a string" );
+            return;
+        }
+
+        auto jsonChannelId = params["channelId"];
+        if ( !jsonChannelId.isDouble() )
+        {
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: channelId is not a number" );
+            return;
+        }
+
+        auto iChannelId = jsonChannelId.toInt();
+        pServer->SendChatText ( iChannelId, jsonChatTextHtml.toString() );
+        response["result"] = "ok";
+    } );
 }
