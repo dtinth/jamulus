@@ -139,7 +139,7 @@ CServerRpc::CServerRpc ( QObject* parent, CServer* pServer, CRpcServer* pRpcServ
         auto jsonRecordingDirectory = params["recordingDirectory"];
         if ( !jsonRecordingDirectory.isString() )
         {
-            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: jsonRecordingDirectory is not a string" );
+            response["error"] = CRpcServer::CreateJsonRpcError ( -32602, "Invalid params: recordingDirectory is not a string" );
             return;
         }
 
