@@ -24,6 +24,8 @@
 
 #include "server.h"
 
+#define COOLDOWN_FRAMES_COUNT 16
+
 // CHighPrecisionTimer implementation ******************************************
 #ifdef _WIN32
 CHighPrecisionTimer::CHighPrecisionTimer ( const bool bNewUseDoubleSystemFrameSize ) : bUseDoubleSystemFrameSize ( bNewUseDoubleSystemFrameSize )
@@ -347,6 +349,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
     vecNumFrameSizeConvBlocks.Init ( iMaxNumChannels );
     vecUseDoubleSysFraSizeConvBuf.Init ( iMaxNumChannels );
     vecAudioComprType.Init ( iMaxNumChannels );
+    vecCooldownFrames.Init ( iMaxNumChannels );
 
     for ( i = 0; i < iMaxNumChannels; i++ )
     {
@@ -367,6 +370,8 @@ CServer::CServer ( const int          iNewMaxNumChan,
 
         // allocate worst case memory for the coded data
         vecvecbyCodedData[i].Init ( MAX_SIZE_BYTES_NETW_BUF );
+
+        vecCooldownFrames[i] = 0;
     }
 
     // allocate worst case memory for the channel levels
@@ -911,6 +916,42 @@ static CTimingMeas JitterMeas ( 1000, "test2.dat" ); JitterMeas.Measure(); // TE
                 }
             }
         }
+        else if ( COOLDOWN_FRAMES_COUNT > 0 )
+        {
+            for ( int i = 0; i < iNumClients; i++ )
+            {
+                int iCooldownFrames = vecCooldownFrames[i];
+                for ( int j = 0; j < 2 * ( iServerFrameSizeSamples ); j++ )
+                {
+                    float fGain = 1.0f;
+                    if ( iCooldownFrames == 1 )
+                    {
+                        fGain = ( j / 2 ) / (float) iServerFrameSizeSamples;
+                    }
+                    else if ( iCooldownFrames == COOLDOWN_FRAMES_COUNT )
+                    {
+                        fGain = 1.0f - ( j / 2 ) / (float) iServerFrameSizeSamples;
+                    }
+                    else if ( iCooldownFrames > 1 )
+                    {
+                        fGain = 0.0f;
+                    }
+
+                    if ( fGain == 1.0f )
+                    {
+                        vecvecsData2[i][j] = vecvecsData[i][j];
+                    }
+                    else if ( fGain == 0.0f )
+                    {
+                        vecvecsData2[i][j] = 0;
+                    }
+                    else
+                    {
+                        vecvecsData2[i][j] = (int16_t) ( vecvecsData[i][j] * fGain );
+                    }
+                }
+            }
+        }
     }
     else
     {
@@ -1071,11 +1112,31 @@ void CServer::DecodeReceiveData ( const int iChanCnt, const int iNumClients )
             if ( eGetStat == GS_BUFFER_OK )
             {
                 pCurCodedData = &vecvecbyCodedData[iChanCnt][0];
+
+                if ( vecCooldownFrames[iB] > 0 )
+                {
+                    vecCooldownFrames[iB]--;
+                    if ( vecCooldownFrames[iB] == 0 )
+                    {
+                        qWarning() << "Channel " << iCurChanID << " is now unmuted";
+                    }
+                }
             }
             else
             {
                 // for lost packets use null pointer as coded input data
                 pCurCodedData = nullptr;
+
+                // temporarily mute the channel
+                if ( vecCooldownFrames[iB] == 0 )
+                {
+                    qWarning() << "Channel " << iCurChanID << " is muted due to a lost packet";
+                    vecCooldownFrames[iB] = COOLDOWN_FRAMES_COUNT;
+                }
+                else
+                {
+                    vecCooldownFrames[iB] = COOLDOWN_FRAMES_COUNT - 1;
+                }
             }
 
             // OPUS decode received data stream
@@ -1121,7 +1182,7 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
         for ( j = 0; j < iNumClients; j++ )
         {
             // get a reference to the audio data and gain of the current client
-            const CVector<int16_t>& vecsData = vecvecsData[j];
+            const CVector<int16_t>& vecsData = COOLDOWN_FRAMES_COUNT > 0 ? vecvecsData2[j] : vecvecsData[j];
             const float             fGain    = vecvecfGains[iChanCnt][j];
 
             // if channel gain is 1, avoid multiplication for speed optimization
@@ -1183,8 +1244,9 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
         for ( j = 0; j < iNumClients; j++ )
         {
             // get a reference to the audio data and gain/pan of the current client
-            const CVector<int16_t>& vecsData  = vecvecsData[j];
-            const CVector<int16_t>& vecsData2 = vecvecsData2[j];
+            const CVector<int16_t>& vecsData      = vecvecsData[j];
+            const CVector<int16_t>& vecsData2     = vecvecsData2[j];
+            const CVector<int16_t>& vecsDataToUse = COOLDOWN_FRAMES_COUNT > 0 ? vecsData2 : vecsData;
 
             const float fGain = vecvecfGains[iChanCnt][j];
             const float fPan  = bDelayPan ? 0.5f : vecvecfPannings[iChanCnt][j];
@@ -1239,8 +1301,8 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
                     }
                     else
                     {
-                        vecfIntermProcBuf[k] += vecsData[i] * fGainL;
-                        vecfIntermProcBuf[k + 1] += vecsData[i] * fGainR;
+                        vecfIntermProcBuf[k] += vecsDataToUse[i] * fGainL;
+                        vecfIntermProcBuf[k + 1] += vecsDataToUse[i] * fGainR;
                     }
                 }
             }
@@ -1278,12 +1340,12 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
                         if ( ( i & 1 ) == 0 )
                         {
                             // if even : left channel
-                            vecfIntermProcBuf[i] += vecsData[i] * fGainL;
+                            vecfIntermProcBuf[i] += vecsDataToUse[i] * fGainL;
                         }
                         else
                         {
                             // if odd  : right channel
-                            vecfIntermProcBuf[i] += vecsData[i] * fGainR;
+                            vecfIntermProcBuf[i] += vecsDataToUse[i] * fGainR;
                         }
                     }
                 }

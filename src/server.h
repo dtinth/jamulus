@@ -345,6 +345,7 @@ protected:
     CVector<CVector<float>>   vecvecfPannings;
     CVector<CVector<int16_t>> vecvecsData;
     CVector<CVector<int16_t>> vecvecsData2;
+    CVector<int>              vecCooldownFrames;
     CVector<int>              vecNumAudioChannels;
     CVector<int>              vecNumFrameSizeConvBlocks;
     CVector<int>              vecUseDoubleSysFraSizeConvBuf;
