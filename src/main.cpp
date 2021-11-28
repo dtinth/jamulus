@@ -83,6 +83,7 @@ int main ( int argc, char** argv )
     bool         bMuteMeInPersonalMix        = false;
     bool         bDisableRecording           = false;
     bool         bDelayPan                   = false;
+    int          iNumCooldownFrames          = 0;
     bool         bNoAutoJackConnect          = false;
     bool         bUseTranslation             = true;
     bool         bCustomPortNumberGiven      = false;
@@ -352,6 +353,16 @@ int main ( int argc, char** argv )
             continue;
         }
 
+        // Cooldown ------------------------------------------------------------
+        if ( GetNumericArgument ( argc, argv, i, "--cooldown", "--cooldown", 0, 187, rDbleArgument ) )
+        {
+            iNumCooldownFrames = static_cast<quint16> ( rDbleArgument );
+            qInfo() << qUtf8Printable ( QString ( "- will mute clients with underrun for %1 audio frames" ).arg ( iNumCooldownFrames ) );
+            CommandLineOptions << "--cooldown";
+            ServerOnlyOptions << "--cooldown";
+            continue;
+        }
+
         // Recording directory -------------------------------------------------
         if ( GetStringArgument ( argc, argv, i, "-R", "--recording", strArgument ) )
         {
@@ -580,6 +591,12 @@ int main ( int argc, char** argv )
         exit ( 1 );
     }
 #endif
+
+    if ( bDelayPan && iNumCooldownFrames > 0 )
+    {
+        qCritical() << "--delaypan and --cooldown are mutually exclusive.";
+        exit ( 1 );
+    }
 
     if ( bIsClient )
     {
@@ -902,6 +919,7 @@ int main ( int argc, char** argv )
                              bUseMultithreading,
                              bDisableRecording,
                              bDelayPan,
+                             iNumCooldownFrames,
                              bEnableIPv6,
                              eLicenceType );
 
@@ -1026,6 +1044,11 @@ QString UsageArguments ( char** argv )
            "                        registering with a server list hosted\n"
            "                        behind the same NAT\n"
            "  -P, --delaypan        start with delay panning enabled\n"
+           "      --cooldown        temporarily mute the channel when their remote buffer\n"
+           "                        is underrun to prevent sound pops, set number of frames\n"
+           "                        to mute. (1 frame = 128 samples or 2.67 ms, cannot be\n"
+           "                        used with --delaypan, recommended value 16, will add\n"
+           "                        2.67 ms to overall latency)\n"
            "  -R, --recording       sets directory to contain recorded jams\n"
            "      --norecord        disables recording (when enabled by default by -R)\n"
            "  -s, --server          start server\n"

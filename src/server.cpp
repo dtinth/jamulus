@@ -24,8 +24,6 @@
 
 #include "server.h"
 
-#define COOLDOWN_FRAMES_COUNT 16
-
 // CHighPrecisionTimer implementation ******************************************
 #ifdef _WIN32
 CHighPrecisionTimer::CHighPrecisionTimer ( const bool bNewUseDoubleSystemFrameSize ) : bUseDoubleSystemFrameSize ( bNewUseDoubleSystemFrameSize )
@@ -232,6 +230,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
                    const bool         bNUseMultithreading,
                    const bool         bDisableRecording,
                    const bool         bNDelayPan,
+                   const int          iNumCooldownFrames,
                    const bool         bNEnableIPv6,
                    const ELicenceType eNLicenceType ) :
     bUseDoubleSystemFrameSize ( bNUseDoubleSystemFrameSize ),
@@ -257,6 +256,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
     bDisableRecording ( bDisableRecording ),
     bAutoRunMinimized ( false ),
     bDelayPan ( bNDelayPan ),
+    iNumCooldownFrames ( iNumCooldownFrames ),
     bEnableIPv6 ( bNEnableIPv6 ),
     eLicenceType ( eNLicenceType ),
     bDisconnectAllClientsOnQuit ( bNDisconnectAllClientsOnQuit ),
@@ -916,7 +916,7 @@ static CTimingMeas JitterMeas ( 1000, "test2.dat" ); JitterMeas.Measure(); // TE
                 }
             }
         }
-        else if ( COOLDOWN_FRAMES_COUNT > 0 )
+        else if ( iNumCooldownFrames > 0 )
         {
             for ( int i = 0; i < iNumClients; i++ )
             {
@@ -926,10 +926,12 @@ static CTimingMeas JitterMeas ( 1000, "test2.dat" ); JitterMeas.Measure(); // TE
                     float fGain = 1.0f;
                     if ( iCooldownFrames == 1 )
                     {
+                        // fade in
                         fGain = ( j / 2 ) / (float) iServerFrameSizeSamples;
                     }
-                    else if ( iCooldownFrames == COOLDOWN_FRAMES_COUNT )
+                    else if ( iCooldownFrames == iNumCooldownFrames )
                     {
+                        // fade out
                         fGain = 1.0f - ( j / 2 ) / (float) iServerFrameSizeSamples;
                     }
                     else if ( iCooldownFrames > 1 )
@@ -1116,10 +1118,6 @@ void CServer::DecodeReceiveData ( const int iChanCnt, const int iNumClients )
                 if ( vecCooldownFrames[iB] > 0 )
                 {
                     vecCooldownFrames[iB]--;
-                    if ( vecCooldownFrames[iB] == 0 )
-                    {
-                        qWarning() << "Channel " << iCurChanID << " is now unmuted";
-                    }
                 }
             }
             else
@@ -1130,12 +1128,12 @@ void CServer::DecodeReceiveData ( const int iChanCnt, const int iNumClients )
                 // temporarily mute the channel
                 if ( vecCooldownFrames[iB] == 0 )
                 {
-                    qWarning() << "Channel " << iCurChanID << " is muted due to a lost packet";
-                    vecCooldownFrames[iB] = COOLDOWN_FRAMES_COUNT;
+                    vecCooldownFrames[iB] = iNumCooldownFrames;
                 }
                 else
                 {
-                    vecCooldownFrames[iB] = COOLDOWN_FRAMES_COUNT - 1;
+                    // skip the fade-out frame
+                    vecCooldownFrames[iB] = iNumCooldownFrames - 1;
                 }
             }
 
@@ -1182,7 +1180,7 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
         for ( j = 0; j < iNumClients; j++ )
         {
             // get a reference to the audio data and gain of the current client
-            const CVector<int16_t>& vecsData = COOLDOWN_FRAMES_COUNT > 0 ? vecvecsData2[j] : vecvecsData[j];
+            const CVector<int16_t>& vecsData = iNumCooldownFrames > 0 ? vecvecsData2[j] : vecvecsData[j];
             const float             fGain    = vecvecfGains[iChanCnt][j];
 
             // if channel gain is 1, avoid multiplication for speed optimization
@@ -1246,7 +1244,7 @@ void CServer::MixEncodeTransmitData ( const int iChanCnt, const int iNumClients 
             // get a reference to the audio data and gain/pan of the current client
             const CVector<int16_t>& vecsData      = vecvecsData[j];
             const CVector<int16_t>& vecsData2     = vecvecsData2[j];
-            const CVector<int16_t>& vecsDataToUse = COOLDOWN_FRAMES_COUNT > 0 ? vecsData2 : vecsData;
+            const CVector<int16_t>& vecsDataToUse = iNumCooldownFrames > 0 ? vecsData2 : vecsData;
 
             const float fGain = vecvecfGains[iChanCnt][j];
             const float fPan  = bDelayPan ? 0.5f : vecvecfPannings[iChanCnt][j];

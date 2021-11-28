@@ -170,6 +170,7 @@ public:
               const bool         bNUseMultithreading,
               const bool         bDisableRecording,
               const bool         bNDelayPan,
+              const int          iNumCooldownFrames,
               const bool         bNEnableIPv6,
               const ELicenceType eNLicenceType );
 
@@ -384,6 +385,10 @@ protected:
 
     // for delay panning
     bool bDelayPan;
+
+    // mute the user with buffer underrun on the server to prevent
+    // popping sound
+    int iNumCooldownFrames;
 
     // enable IPv6
     bool bEnableIPv6;
