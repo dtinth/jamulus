@@ -920,7 +920,8 @@ static CTimingMeas JitterMeas ( 1000, "test2.dat" ); JitterMeas.Measure(); // TE
         {
             for ( int i = 0; i < iNumClients; i++ )
             {
-                int iCooldownFrames = vecCooldownFrames[i];
+                const int iCurChanID      = vecChanIDsCurConChan[i];
+                const int iCooldownFrames = vecCooldownFrames[iCurChanID];
                 for ( int j = 0; j < 2 * ( iServerFrameSizeSamples ); j++ )
                 {
                     float fGain = 1.0f;
@@ -1115,9 +1116,9 @@ void CServer::DecodeReceiveData ( const int iChanCnt, const int iNumClients )
             {
                 pCurCodedData = &vecvecbyCodedData[iChanCnt][0];
 
-                if ( vecCooldownFrames[iB] > 0 )
+                if ( vecCooldownFrames[iCurChanID] > 0 )
                 {
-                    vecCooldownFrames[iB]--;
+                    vecCooldownFrames[iCurChanID]--;
                 }
             }
             else
@@ -1126,14 +1127,14 @@ void CServer::DecodeReceiveData ( const int iChanCnt, const int iNumClients )
                 pCurCodedData = nullptr;
 
                 // temporarily mute the channel
-                if ( vecCooldownFrames[iB] == 0 )
+                if ( vecCooldownFrames[iCurChanID] == 0 )
                 {
-                    vecCooldownFrames[iB] = iNumCooldownFrames;
+                    vecCooldownFrames[iCurChanID] = iNumCooldownFrames;
                 }
                 else
                 {
                     // skip the fade-out frame
-                    vecCooldownFrames[iB] = iNumCooldownFrames - 1;
+                    vecCooldownFrames[iCurChanID] = iNumCooldownFrames - 1;
                 }
             }
 
