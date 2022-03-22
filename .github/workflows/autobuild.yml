@@ -27,6 +27,8 @@ on:
       # CodeQL requires every branch from on.pull_request to be part of on.push as well in order to run comparisons.
       # We also need master here to trigger builds on PR merge to master and manual pushes (e.g. as part of the release process):
       - "master"
+      - "dtinth"
+      - "dtinth_staging"
     paths-ignore:
       - '**README.md'
       - 'docs/**'
@@ -195,7 +197,7 @@ jobs:
         uses:                       actions/checkout@v2
         with:
           submodules:               true
-          fetch-depth:              ${{ matrix.config.checkout_fetch_depth || '1' }}
+          fetch-depth:              ${{ matrix.config.checkout_fetch_depth || '0' }}
 
       - name:                       Cache Mac dependencies
         if:                         matrix.config.target_os == 'macos'
