@@ -216,6 +216,23 @@ Results:
 | result | string | Always "ok". |
 
 
+### jamulusserver/broadcastChatText
+
+Broadcasts a chat text to all clients.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.chatTextHtml | string | The chat text to send (HTML is allowed). |
+
+Results:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| result | string | Always "ok". |
+
+
 ### jamulusserver/getClients
 
 Returns the list of connected clients along with details about them.
@@ -295,6 +312,24 @@ Results:
 | Name | Type | Description |
 | --- | --- | --- |
 | result | string | Always "acknowledged".   To check if the recording was restarted or if there is any error, call `jamulusserver/getRecorderStatus` again. |
+
+
+### jamulusserver/sendChatText
+
+Sends a chat text to a specific client.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.channelId | number | The channel ID. |
+| params.chatTextHtml | string | The chat text to send (HTML is allowed). |
+
+Results:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| result | string | Always "ok". |
 
 
 ### jamulusserver/setRecordingDirectory
@@ -443,5 +478,18 @@ Parameters:
 | Name | Type | Description |
 | --- | --- | --- |
 | params | object | No parameters (empty object). |
+
+
+### jamulusserver/chatTextReceived
+
+Emitted when a client sends chat text to the server.
+
+Parameters:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| params.channel.id | number | The channel ID. |
+| params.channel.name | string | The channel name. |
+| params.chatText | string | The chat text (not HTML-escaped). |
 
 
