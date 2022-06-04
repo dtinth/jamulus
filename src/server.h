@@ -89,6 +89,7 @@ public:
               const QString&     strLoggingFileName,
               const QString&     strServerBindIP,
               const quint16      iPortNumber,
+              const quint16      iPacketLossPercentage,
               const quint16      iQosNumber,
               const QString&     strHTMLStatusFileName,
               const QString&     strDirectoryServer,

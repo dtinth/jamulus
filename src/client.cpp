@@ -26,6 +26,7 @@
 
 /* Implementation *************************************************************/
 CClient::CClient ( const quint16  iPortNumber,
+                   const quint16  iPacketLossPercentage,
                    const quint16  iQosNumber,
                    const QString& strConnOnStartupAddress,
                    const QString& strMIDISetup,
@@ -91,9 +92,19 @@ CClient::CClient ( const quint16  iPortNumber,
     opus_custom_encoder_ctl ( Opus64EncoderMono, OPUS_SET_VBR ( 0 ) );
     opus_custom_encoder_ctl ( Opus64EncoderStereo, OPUS_SET_VBR ( 0 ) );
 
-    // for 64 samples frame size we have to adjust the PLC behavior to avoid loud artifacts
-    opus_custom_encoder_ctl ( Opus64EncoderMono, OPUS_SET_PACKET_LOSS_PERC ( 35 ) );
-    opus_custom_encoder_ctl ( Opus64EncoderStereo, OPUS_SET_PACKET_LOSS_PERC ( 35 ) );
+    if ( iPacketLossPercentage > 0 )
+    {
+        opus_custom_encoder_ctl ( OpusEncoderMono, OPUS_SET_PACKET_LOSS_PERC ( iPacketLossPercentage ) );
+        opus_custom_encoder_ctl ( OpusEncoderStereo, OPUS_SET_PACKET_LOSS_PERC ( iPacketLossPercentage ) );
+        opus_custom_encoder_ctl ( Opus64EncoderMono, OPUS_SET_PACKET_LOSS_PERC ( iPacketLossPercentage < 35 ? 35 : iPacketLossPercentage ) );
+        opus_custom_encoder_ctl ( Opus64EncoderStereo, OPUS_SET_PACKET_LOSS_PERC ( iPacketLossPercentage < 35 ? 35 : iPacketLossPercentage ) );
+    }
+    else
+    {
+        // for 64 samples frame size we have to adjust the PLC behavior to avoid loud artifacts
+        opus_custom_encoder_ctl ( Opus64EncoderMono, OPUS_SET_PACKET_LOSS_PERC ( 35 ) );
+        opus_custom_encoder_ctl ( Opus64EncoderStereo, OPUS_SET_PACKET_LOSS_PERC ( 35 ) );
+    }
 
     // we want as low delay as possible
     opus_custom_encoder_ctl ( OpusEncoderMono, OPUS_SET_APPLICATION ( OPUS_APPLICATION_RESTRICTED_LOWDELAY ) );

@@ -98,6 +98,7 @@ int main ( int argc, char** argv )
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
     int          iJsonRpcPortNumber          = INVALID_PORT;
     quint16      iQosNumber                  = DEFAULT_QOS_NUMBER;
+    quint16      iPacketLossPercentage       = 0;
     ELicenceType eLicenceType                = LT_NO_LICENCE;
     QString      strMIDISetup                = "";
     QString      strConnOnStartupAddress     = "";
@@ -191,6 +192,15 @@ int main ( int argc, char** argv )
             strJsonRpcSecretFileName = strArgument;
             qInfo() << qUtf8Printable ( QString ( "- JSON-RPC secret file: %1" ).arg ( strJsonRpcSecretFileName ) );
             CommandLineOptions << "--jsonrpcsecretfile";
+            continue;
+        }
+
+        // Packet Loss Percentage for Opus -------------------------------------
+        if ( GetNumericArgument ( argc, argv, i, "--plc", "--plc", 0, 100, rDbleArgument ) )
+        {
+            iPacketLossPercentage = static_cast<quint16> ( rDbleArgument );
+            qInfo() << qUtf8Printable ( QString ( "- set packet loss percentage: %1" ).arg ( iPacketLossPercentage ) );
+            CommandLineOptions << "--plc";
             continue;
         }
 
@@ -863,6 +873,7 @@ int main ( int argc, char** argv )
             // Client:
             // actual client object
             CClient Client ( iPortNumber,
+                             iPacketLossPercentage,
                              iQosNumber,
                              strConnOnStartupAddress,
                              strMIDISetup,
@@ -923,6 +934,7 @@ int main ( int argc, char** argv )
                              strLoggingFileName,
                              strServerBindIP,
                              iPortNumber,
+                             iPacketLossPercentage,
                              iQosNumber,
                              strHTMLStatusFileName,
                              strDirectoryServer,
@@ -1034,6 +1046,9 @@ QString UsageArguments ( char** argv )
            "      --jsonrpcsecretfile\n"
            "                        path to a single-line file which contains a freely\n"
            "                        chosen secret to authenticate JSON-RPC users.\n"
+           "      --plc             set the expected percentage of packet loss (0-100).\n"
+           "                        Default is 0. This can help reduce popping artifacts\n"
+           "                        in exchange to a slight loss of audio quality.\n"
            "  -Q, --qos             set the QoS value. Default is 128. Disable with 0\n"
            "                        (see the Jamulus website to enable QoS on Windows)\n"
            "  -t, --notranslation   disable translation (use English language)\n"
