@@ -186,6 +186,8 @@ CServer::CServer ( const int          iNewMaxNumChan,
 
     // allocate worst case memory for the channel levels
     vecChannelLevels.Init ( iMaxNumChannels );
+    vecStrikes.Init ( iMaxNumChannels );
+    vecStrikesCooldown.Init ( iMaxNumChannels );
 
     // enable logging (if requested)
     if ( !strLoggingFileName.isEmpty() )
@@ -1637,9 +1639,32 @@ bool CServer::CreateLevelsForAllConChannels ( const int                       iN
             // map value to integer for transmission via the protocol (4 bit available)
             vecLevelsOut[j] = static_cast<uint16_t> ( std::ceil ( dCurSigLevelForMeterdB ) );
 
-            if ( vecLevelsOut[j] >= NUM_STEPS_LED_BAR )
+            if ( bPunish )
             {
-                PunishLoudClient ( vecChannels[vecChanIDsCurConChan[j]] );
+                if ( vecLevelsOut[j] >= NUM_STEPS_LED_BAR )
+                {
+                    if ( vecStrikes[j] >= 1 )
+                    {
+                        PunishLoudClient ( vecChannels[vecChanIDsCurConChan[j]] );
+                        vecStrikes[j] = 0;
+                    }
+                    else
+                    {
+                        vecStrikes[j]++;
+                        vecStrikesCooldown[j] = 4;
+                    }
+                }
+                else
+                {
+                    if ( vecStrikesCooldown[j] > 0 )
+                    {
+                        vecStrikesCooldown[j]--;
+                    }
+                    else
+                    {
+                        vecStrikes[j] = 0;
+                    }
+                }
             }
         }
     }

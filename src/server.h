@@ -272,6 +272,10 @@ protected:
     // Channel levels
     CVector<uint16_t> vecChannelLevels;
 
+    // Warnings before punishing
+    CVector<uint8_t> vecStrikes;
+    CVector<uint8_t> vecStrikesCooldown;
+
     // actual working objects
     CHighPrioSocket Socket;
 
