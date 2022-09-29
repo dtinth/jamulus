@@ -103,6 +103,7 @@ public:
               const bool         bNUseMultithreading,
               const bool         bDisableRecording,
               const bool         bNDelayPan,
+              const bool         bNPunish,
               const bool         bNEnableIPv6,
               const ELicenceType eNLicenceType );
 
@@ -271,6 +272,10 @@ protected:
     // Channel levels
     CVector<uint16_t> vecChannelLevels;
 
+    // Warnings before punishing
+    CVector<uint8_t> vecStrikes;
+    CVector<uint8_t> vecStrikesCooldown;
+
     // actual working objects
     CHighPrioSocket Socket;
 
@@ -298,6 +303,9 @@ protected:
 
     // for delay panning
     bool bDelayPan;
+
+    // whether to punish loud clients
+    bool bPunish;
 
     // enable IPv6
     bool bEnableIPv6;

@@ -43,6 +43,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
                    const bool         bNUseMultithreading,
                    const bool         bDisableRecording,
                    const bool         bNDelayPan,
+                   const bool         bNPunish,
                    const bool         bNEnableIPv6,
                    const ELicenceType eNLicenceType ) :
     bUseDoubleSystemFrameSize ( bNUseDoubleSystemFrameSize ),
@@ -68,6 +69,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
     bDisableRecording ( bDisableRecording ),
     bAutoRunMinimized ( false ),
     bDelayPan ( bNDelayPan ),
+    bPunish ( bNPunish ),
     bEnableIPv6 ( bNEnableIPv6 ),
     eLicenceType ( eNLicenceType ),
     bDisconnectAllClientsOnQuit ( bNDisconnectAllClientsOnQuit ),
@@ -184,6 +186,8 @@ CServer::CServer ( const int          iNewMaxNumChan,
 
     // allocate worst case memory for the channel levels
     vecChannelLevels.Init ( iMaxNumChannels );
+    vecStrikes.Init ( iMaxNumChannels );
+    vecStrikesCooldown.Init ( iMaxNumChannels );
 
     // enable logging (if requested)
     if ( !strLoggingFileName.isEmpty() )
@@ -1594,6 +1598,23 @@ void CServer::customEvent ( QEvent* pEvent )
     }
 }
 
+static bool PunishLoudClient ( CChannel& channel )
+{
+    if ( channel.GetFadeInGain() > 0.25 )
+    {
+        channel.ResetFadeIn();
+        channel.CreateChatTextMes ( "<b>System Message:</b> Your sound level is too loud. Please reduce your sound level, and make sure that the "
+                                    "sound meter stays below the red area." );
+
+        const QString curDateTime = QDateTime::currentDateTime().toString ( "yyyy-MM-dd HH:mm:ss" );
+        const QString strLogStr   = curDateTime + ", " + channel.GetAddress().toString() + ", sound level too loud, fade-in reset";
+        qInfo() << qUtf8Printable ( strLogStr ); // on console
+        return true;
+    }
+
+    return false;
+}
+
 /// @brief Compute frame peak level for each client
 bool CServer::CreateLevelsForAllConChannels ( const int                       iNumClients,
                                               const CVector<int>&             vecNumAudioChannels,
@@ -1617,6 +1638,34 @@ bool CServer::CreateLevelsForAllConChannels ( const int                       iN
 
             // map value to integer for transmission via the protocol (4 bit available)
             vecLevelsOut[j] = static_cast<uint16_t> ( std::ceil ( dCurSigLevelForMeterdB ) );
+
+            if ( bPunish )
+            {
+                if ( vecLevelsOut[j] >= NUM_STEPS_LED_BAR )
+                {
+                    if ( vecStrikes[j] >= 1 )
+                    {
+                        PunishLoudClient ( vecChannels[vecChanIDsCurConChan[j]] );
+                        vecStrikes[j] = 0;
+                    }
+                    else
+                    {
+                        vecStrikes[j]++;
+                        vecStrikesCooldown[j] = 4;
+                    }
+                }
+                else
+                {
+                    if ( vecStrikesCooldown[j] > 0 )
+                    {
+                        vecStrikesCooldown[j]--;
+                    }
+                    else
+                    {
+                        vecStrikes[j] = 0;
+                    }
+                }
+            }
         }
     }
 

@@ -34,6 +34,7 @@ CChannel::CChannel ( const bool bNIsServer ) :
     iSendSequenceNumber ( 0 ),
     iFadeInCnt ( 0 ),
     iFadeInCntMax ( FADE_IN_NUM_FRAMES_DBLE_FRAMESIZE ),
+    iFadeInPause ( 0 ),
     bIsEnabled ( false ),
     bIsServer ( bNIsServer ),
     bIsIdentified ( false ),
@@ -306,6 +307,12 @@ float CChannel::GetGain ( const int iChanID )
     }
 }
 
+void CChannel::ResetFadeIn()
+{
+    iFadeInCnt   = 0;
+    iFadeInPause = iFadeInCntMax / 3;
+}
+
 void CChannel::SetPan ( const int iChanID, const float fNewPan )
 {
     QMutexLocker locker ( &Mutex );
@@ -552,9 +559,13 @@ EPutDataStat CChannel::PutAudioData ( const CVector<uint8_t>& vecbyData, const i
                 }
 
                 // manage audio fade-in counter, after channel is identified
-                if ( iFadeInCnt < iFadeInCntMax && bIsIdentified )
+                if ( iFadeInCnt < iFadeInCntMax && bIsIdentified && iFadeInPause <= 0 )
                 {
                     iFadeInCnt++;
+                }
+                else if ( iFadeInPause > 0 )
+                {
+                    iFadeInPause--;
                 }
             }
             else
