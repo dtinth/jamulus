@@ -92,6 +92,7 @@ int main ( int argc, char** argv )
     bool         bMuteMeInPersonalMix        = false;
     bool         bDisableRecording           = false;
     bool         bDelayPan                   = false;
+    bool         bPunish                     = false;
     bool         bNoAutoJackConnect          = false;
     bool         bUseTranslation             = true;
     bool         bCustomPortNumberGiven      = false;
@@ -371,6 +372,16 @@ int main ( int argc, char** argv )
             qInfo() << "- starting with delay panning";
             CommandLineOptions << "--delaypan";
             ServerOnlyOptions << "--delaypan";
+            continue;
+        }
+
+        // Enable delay panning on startup -------------------------------------
+        if ( GetFlagArgument ( argv, i, "--punish", "--punish" ) )
+        {
+            bPunish = true;
+            qInfo() << "- punishing loud clients";
+            CommandLineOptions << "--punish";
+            ServerOnlyOptions << "--punish";
             continue;
         }
 
@@ -959,6 +970,7 @@ int main ( int argc, char** argv )
                              bUseMultithreading,
                              bDisableRecording,
                              bDelayPan,
+                             bPunish,
                              bEnableIPv6,
                              eLicenceType );
 
@@ -1080,6 +1092,7 @@ QString UsageArguments ( char** argv )
            "                        registering with a server list hosted\n"
            "                        behind the same NAT\n"
            "  -P, --delaypan        start with delay panning enabled\n"
+           "      --punish          punish loud clients by temporarily muting them\n"
            "  -R, --recording       sets directory to contain recorded jams\n"
            "      --norecord        disables recording (when enabled by default by -R)\n"
            "  -s, --server          start Server\n"

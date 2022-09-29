@@ -103,6 +103,7 @@ public:
               const bool         bNUseMultithreading,
               const bool         bDisableRecording,
               const bool         bNDelayPan,
+              const bool         bNPunish,
               const bool         bNEnableIPv6,
               const ELicenceType eNLicenceType );
 
@@ -298,6 +299,9 @@ protected:
 
     // for delay panning
     bool bDelayPan;
+
+    // whether to punish loud clients
+    bool bPunish;
 
     // enable IPv6
     bool bEnableIPv6;

@@ -104,6 +104,7 @@ public:
     void  SetGain ( const int iChanID, const float fNewGain );
     float GetGain ( const int iChanID );
     float GetFadeInGain() { return static_cast<float> ( iFadeInCnt ) / iFadeInCntMax; }
+    void  ResetFadeIn();
 
     void  SetPan ( const int iChanID, const float fNewPan );
     float GetPan ( const int iChanID );
@@ -212,6 +213,7 @@ protected:
     int iConTimeOutStartVal;
     int iFadeInCnt;
     int iFadeInCntMax;
+    int iFadeInPause;
 
     bool bIsEnabled;
     bool bIsServer;
