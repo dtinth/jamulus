@@ -62,6 +62,7 @@ CClient::CClient ( const quint16  iPortNumber,
     bFraSiFactSafeSupported ( false ),
     eGUIDesign ( GD_ORIGINAL ),
     eMeterStyle ( MT_LED_STRIPE ),
+    bEnableAudioAlerts ( false ),
     bEnableOPUS64 ( false ),
     bJitterBufferOK ( true ),
     bEnableIPv6 ( bNEnableIPv6 ),
@@ -117,6 +118,8 @@ CClient::CClient ( const quint16  iPortNumber,
 
     QObject::connect ( &Channel, &CChannel::ReqChanInfo, this, &CClient::OnReqChanInfo );
 
+    // The first ConClientListMesReceived handler performs the necessary cleanup and has to run first:
+    QObject::connect ( &Channel, &CChannel::ConClientListMesReceived, this, &CClient::OnConClientListMesReceived );
     QObject::connect ( &Channel, &CChannel::ConClientListMesReceived, this, &CClient::ConClientListMesReceived );
 
     QObject::connect ( &Channel, &CChannel::Disconnected, this, &CClient::Disconnected );
@@ -172,6 +175,11 @@ CClient::CClient ( const quint16  iPortNumber,
 
     // start timer so that elapsed time works
     PreciseTime.start();
+
+    // set gain delay timer to single-shot and connect handler function
+    TimerGain.setSingleShot ( true );
+
+    QObject::connect ( &TimerGain, &QTimer::timeout, this, &CClient::OnTimerRemoteChanGain );
 
     // start the socket (it is important to start the socket after all
     // initializations and connections)
@@ -255,6 +263,15 @@ void CClient::OnJittBufSizeChanged ( int iNewJitBufSize )
 
 void CClient::OnNewConnection()
 {
+    // The oldGain and newGain arrays are used to avoid sending duplicate gain change messages.
+    // As these values depend on the channel IDs of a specific server, we have
+    // to reset those upon connect.
+    // We reset to 1 because this is what the server part sets by default.
+    for ( int iId = 0; iId < MAX_NUM_CHANNELS; iId++ )
+    {
+        oldGain[iId] = newGain[iId] = 1;
+    }
+
     // a new connection was successfully initiated, send infos and request
     // connected clients list
     Channel.SetRemoteInfo ( ChannelInfo );
@@ -268,10 +285,37 @@ void CClient::OnNewConnection()
     Channel.CreateReqConnClientsList();
     CreateServerJitterBufferMessage();
 
-    // clang-format off
-// TODO needed for compatibility to old servers >= 3.4.6 and <= 3.5.12
-Channel.CreateReqChannelLevelListMes();
-    // clang-format on
+    //### TODO: BEGIN ###//
+    // needed for compatibility to old servers >= 3.4.6 and <= 3.5.12
+    Channel.CreateReqChannelLevelListMes();
+    //### TODO: END ###//
+}
+
+void CClient::OnConClientListMesReceived ( CVector<CChannelInfo> vecChanInfo )
+{
+    // Upon receiving a new client list, we have to reset oldGain and newGain
+    // entries for unused channels. This ensures that a disconnected channel
+    // does not leave behind wrong cached gain values which would leak into
+    // any new channel which reused this channel id.
+    int iNumConnectedClients = vecChanInfo.Size();
+
+    // Save what channel IDs are in use:
+    bool bChanIdInUse[MAX_NUM_CHANNELS] = {};
+    for ( int i = 0; i < iNumConnectedClients; i++ )
+    {
+        bChanIdInUse[vecChanInfo[i].iChanID] = true;
+    }
+
+    // Reset all gains for unused channel IDs:
+    for ( int iId = 0; iId < MAX_NUM_CHANNELS; iId++ )
+    {
+        if ( !bChanIdInUse[iId] )
+        {
+            // reset oldGain and newGain as this channel id is currently unused and will
+            // start with a server-side gain at 1 (100%) again.
+            oldGain[iId] = newGain[iId] = 1;
+        }
+    }
 }
 
 void CClient::CreateServerJitterBufferMessage()
@@ -299,6 +343,8 @@ void CClient::OnCLPingReceived ( CHostAddress InetAddr, int iMs )
         const int iCurDiff = EvaluatePingMessage ( iMs );
         if ( iCurDiff >= 0 )
         {
+            iCurPingTime = iCurDiff; // store for use by gain message sending
+
             emit PingTimeReceived ( iCurDiff );
         }
     }
@@ -335,15 +381,97 @@ void CClient::SetDoAutoSockBufSize ( const bool bValue )
     CreateServerJitterBufferMessage();
 }
 
+// In order not to flood the server with gain change messages, particularly when using
+// a MIDI controller, a timer is used to limit the rate at which such messages are generated.
+// This avoids a potential long backlog of messages, since each must be ACKed before the next
+// can be sent, and this ACK is subject to the latency of the server connection.
+//
+// When the first gain change message is requested after an idle period (i.e. the timer is not
+// running), it will be sent immediately, and a 300ms timer started.
+//
+// If a gain change message is requested while the timer is still running, the new gain is not sent,
+// but just stored in newGain[iId], and the minGainId and maxGainId updated to note the range of
+// IDs that must be checked when the time expires (this will usually be a single channel
+// unless channel grouping is being used). This avoids having to check all possible channels.
+//
+// When the timer fires, the channels minGainId <= iId < maxGainId are checked by comparing
+// the last sent value in oldGain[iId] with any pending value in newGain[iId], and if they differ,
+// the new value is sent, updating oldGain[iId] with the sent value. If any new values are
+// sent, the timer is restarted so that further immediate updates will be pended.
+
 void CClient::SetRemoteChanGain ( const int iId, const float fGain, const bool bIsMyOwnFader )
 {
+    QMutexLocker locker ( &MutexGain );
+
     // if this gain is for my own channel, apply the value for the Mute Myself function
     if ( bIsMyOwnFader )
     {
         fMuteOutStreamGain = fGain;
     }
 
+    if ( TimerGain.isActive() )
+    {
+        // just update the new value for sending later;
+        // will compare with oldGain[iId] when the timer fires
+        newGain[iId] = fGain;
+
+        // update range of channel IDs to check in the timer
+        if ( iId < minGainId )
+            minGainId = iId; // first value to check
+        if ( iId >= maxGainId )
+            maxGainId = iId + 1; // first value NOT to check
+
+        return;
+    }
+
+    // here the timer was not active:
+    // send the actual gain and reset the range of channel IDs to empty
+    oldGain[iId] = newGain[iId] = fGain;
     Channel.SetRemoteChanGain ( iId, fGain );
+
+    StartDelayTimer();
+}
+
+void CClient::OnTimerRemoteChanGain()
+{
+    QMutexLocker locker ( &MutexGain );
+    bool         bSent = false;
+
+    for ( int iId = minGainId; iId < maxGainId; iId++ )
+    {
+        if ( newGain[iId] != oldGain[iId] )
+        {
+            // send new gain and record as old gain
+            float fGain = oldGain[iId] = newGain[iId];
+            Channel.SetRemoteChanGain ( iId, fGain );
+            bSent = true;
+        }
+    }
+
+    // if a new gain has been sent, reset the range of channel IDs to empty and start timer
+    if ( bSent )
+    {
+        StartDelayTimer();
+    }
+}
+
+// reset the range of channel IDs to check and start the delay timer
+void CClient::StartDelayTimer()
+{
+    maxGainId = 0;
+    minGainId = MAX_NUM_CHANNELS;
+
+    // start timer to delay sending further updates
+    // use longer delay when connected to server with higher ping time,
+    // double the ping time in order to allow a bit of overhead for other messages
+    if ( iCurPingTime < DEFAULT_GAIN_DELAY_PERIOD_MS / 2 )
+    {
+        TimerGain.start ( DEFAULT_GAIN_DELAY_PERIOD_MS );
+    }
+    else
+    {
+        TimerGain.start ( iCurPingTime * 2 );
+    }
 }
 
 bool CClient::SetServerAddr ( QString strNAddr )
@@ -999,13 +1127,13 @@ void CClient::AudioCallback ( CVector<int16_t>& psData, void* arg )
     // process audio data
     pMyClientObj->ProcessSndCrdAudioData ( psData );
 
-    // clang-format off
-/*
-// TEST do a soundcard jitter measurement
-static CTimingMeas JitterMeas ( 1000, "test2.dat" );
-JitterMeas.Measure();
-*/
-    // clang-format on
+    //### TEST: BEGIN ###//
+    // do a soundcard jitter measurement
+    /*
+    static CTimingMeas JitterMeas ( 1000, "test2.dat" );
+    JitterMeas.Measure();
+    */
+    //### TEST: END ###//
 }
 
 void CClient::ProcessSndCrdAudioData ( CVector<int16_t>& vecsStereoSndCrd )

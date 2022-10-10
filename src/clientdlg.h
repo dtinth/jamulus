@@ -37,6 +37,8 @@
 #include <QLayout>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QActionGroup>
+#include <QSoundEffect>
 #if QT_VERSION >= QT_VERSION_CHECK( 5, 6, 0 )
 #    include <QVersionNumber>
 #endif
@@ -51,10 +53,8 @@
 #include "connectdlg.h"
 #include "analyzerconsole.h"
 #include "ui_clientdlgbase.h"
-#if defined( __APPLE__ ) || defined( __MACOSX )
-#    if QT_VERSION >= QT_VERSION_CHECK( 5, 2, 0 )
-#        include <QtMac>
-#    endif
+#if defined( Q_OS_MACX )
+#    include "mac/badgelabel.h"
 #endif
 
 /* Definitions ****************************************************************/
@@ -102,6 +102,7 @@ protected:
     CClient*         pClient;
     CClientSettings* pSettings;
 
+    int            iClients;
     bool           bConnected;
     bool           bConnectDlgWasShown;
     bool           bMIDICtrlUsed;

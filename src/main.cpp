@@ -29,11 +29,15 @@
 #ifndef HEADLESS
 #    include <QApplication>
 #    include <QMessageBox>
-#    include "clientdlg.h"
 #    include "serverdlg.h"
+#    ifndef SERVER_ONLY
+#        include "clientdlg.h"
+#    endif
 #endif
 #include "settings.h"
-#include "testbench.h"
+#ifndef SERVER_ONLY
+#    include "testbench.h"
+#endif
 #include "util.h"
 #ifdef ANDROID
 #    include <QtAndroidExtras/QtAndroid>
@@ -43,9 +47,13 @@
 extern void qt_set_sequence_auto_mnemonic ( bool bEnable );
 #endif
 #include <memory>
-#include "rpcserver.h"
-#include "serverrpc.h"
-#include "clientrpc.h"
+#ifndef NO_JSON_RPC
+#    include "rpcserver.h"
+#    include "serverrpc.h"
+#    ifndef SERVER_ONLY
+#        include "clientrpc.h"
+#    endif
+#endif
 
 // Implementation **************************************************************
 
@@ -54,7 +62,7 @@ int main ( int argc, char** argv )
 
 #if defined( Q_OS_MACX )
     // Mnemonic keys are default disabled in Qt for MacOS. The following function enables them.
-    // Qt will not show these with underline characters in the GUI on MacOS.
+    // Qt will not show these with underline characters in the GUI on MacOS. (#1873)
     qt_set_sequence_auto_mnemonic ( true );
 #endif
 
@@ -66,9 +74,10 @@ int main ( int argc, char** argv )
 
     // initialize all flags and string which might be changed by command line
     // arguments
-#if defined( SERVER_BUNDLE ) && ( defined( Q_OS_MACX ) )
-    // if we are on MacOS and we are building a server bundle, starts Jamulus in server mode
+#if ( defined( SERVER_BUNDLE ) && defined( Q_OS_MACX ) ) || defined( SERVER_ONLY )
+    // if we are on MacOS and we are building a server bundle or requested build with serveronly, start Jamulus in server mode
     bool bIsClient = false;
+    qInfo() << "- Starting in server mode by default (due to compile time option)";
 #else
     bool bIsClient = true;
 #endif
@@ -83,6 +92,7 @@ int main ( int argc, char** argv )
     bool         bMuteMeInPersonalMix        = false;
     bool         bDisableRecording           = false;
     bool         bDelayPan                   = false;
+    bool         bPunish                     = false;
     bool         bNoAutoJackConnect          = false;
     bool         bUseTranslation             = true;
     bool         bCustomPortNumberGiven      = false;
@@ -107,6 +117,19 @@ int main ( int argc, char** argv )
     QString      strWelcomeMessage           = "";
     QString      strClientName               = "";
     QString      strJsonRpcSecretFileName    = "";
+
+#if defined( HEADLESS ) || defined( SERVER_ONLY )
+    Q_UNUSED ( bStartMinimized )
+    Q_UNUSED ( bUseTranslation )
+    Q_UNUSED ( bShowComplRegConnList )
+    Q_UNUSED ( bShowAnalyzerConsole )
+    Q_UNUSED ( bMuteStream )
+#endif
+#if defined( SERVER_ONLY )
+    Q_UNUSED ( bMuteMeInPersonalMix )
+    Q_UNUSED ( bNoAutoJackConnect )
+    Q_UNUSED ( bCustomPortNumberGiven )
+#endif
 
 #if !defined( HEADLESS ) && defined( _WIN32 )
     if ( AttachConsole ( ATTACH_PARENT_PROCESS ) )
@@ -352,6 +375,16 @@ int main ( int argc, char** argv )
             continue;
         }
 
+        // Enable delay panning on startup -------------------------------------
+        if ( GetFlagArgument ( argv, i, "--punish", "--punish" ) )
+        {
+            bPunish = true;
+            qInfo() << "- punishing loud clients";
+            CommandLineOptions << "--punish";
+            ServerOnlyOptions << "--punish";
+            continue;
+        }
+
         // Recording directory -------------------------------------------------
         if ( GetStringArgument ( argc, argv, i, "-R", "--recording", strArgument ) )
         {
@@ -468,7 +501,7 @@ int main ( int argc, char** argv )
         if ( GetFlagArgument ( argv, i, "-M", "--mutestream" ) )
         {
             bMuteStream = true;
-            qInfo() << "- mute stream activated";
+            qInfo() << "- others on a server will not hear you (mutestream active)";
             CommandLineOptions << "--mutestream";
             ClientOnlyOptions << "--mutestream";
             continue;
@@ -481,7 +514,7 @@ int main ( int argc, char** argv )
                                "--mutemyown" ) )
         {
             bMuteMeInPersonalMix = true;
-            qInfo() << "- mute me in my personal mix";
+            qInfo() << "- you will not hear yourself in the server mix (mutemyown active)";
             CommandLineOptions << "--mutemyown";
             ClientOnlyOptions << "--mutemyown";
             continue;
@@ -567,24 +600,19 @@ int main ( int argc, char** argv )
         bUseGUI = false;
         qWarning() << "No GUI support compiled. Running in headless mode.";
     }
-    Q_UNUSED ( bStartMinimized )       // avoid compiler warnings
-    Q_UNUSED ( bShowComplRegConnList ) // avoid compiler warnings
-    Q_UNUSED ( bShowAnalyzerConsole )  // avoid compiler warnings
-    Q_UNUSED ( bMuteStream )           // avoid compiler warnings
 #endif
 
-#ifdef SERVER_ONLY
     if ( bIsClient )
+#ifdef SERVER_ONLY
     {
-        qCritical() << "Only --server mode is supported in this build with nosound.";
+        qCritical() << "Only --server mode is supported in this build.";
         exit ( 1 );
     }
-#endif
+#else
 
     // TODO create settings in default state, if loading from file do that next, then come back here to
     //      override from command line options, then create client or server, letting them do the validation
 
-    if ( bIsClient )
     {
         if ( ServerOnlyOptions.size() != 0 )
         {
@@ -610,6 +638,7 @@ int main ( int argc, char** argv )
         }
     }
     else
+#endif
     {
         if ( ClientOnlyOptions.size() != 0 )
         {
@@ -618,6 +647,7 @@ int main ( int argc, char** argv )
             exit ( 1 );
         }
 
+#ifndef HEADLESS
         if ( bUseGUI )
         {
             // by definition, when running with the GUI we always default to registering somewhere but
@@ -636,6 +666,7 @@ int main ( int argc, char** argv )
             }
         }
         else
+#endif
         {
             // the inifile is not supported for the headless server mode
             if ( !strIniFileName.isEmpty() )
@@ -757,11 +788,11 @@ int main ( int argc, char** argv )
     QCoreApplication* pApp = new QCoreApplication ( argc, argv );
 #else
 #    if defined( Q_OS_IOS )
-    bUseGUI        = true;
-    bIsClient      = true; // Client only - TODO: maybe a switch in interface to change to server?
+    bUseGUI   = true;
+    bIsClient = true; // Client only - TODO: maybe a switch in interface to change to server?
 
     // bUseMultithreading = true;
-    QApplication* pApp = new QApplication ( argc, argv );
+    QApplication* pApp       = new QApplication ( argc, argv );
 #    else
     QCoreApplication* pApp = bUseGUI ? new QApplication ( argc, argv ) : new QCoreApplication ( argc, argv );
 #    endif
@@ -804,12 +835,20 @@ int main ( int argc, char** argv )
     // init resources
     Q_INIT_RESOURCE ( resources );
 
-    // clang-format off
-// TEST -> activate the following line to activate the test bench,
-//CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
-    // clang-format on
+#ifndef SERVER_ONLY
+    //### TEST: BEGIN ###//
+    // activate the following line to activate the test bench,
+    // CTestbench Testbench ( "127.0.0.1", DEFAULT_PORT_NUMBER );
+    //### TEST: END ###//
+#endif
 
-    CRpcServer* pRpcServer = nullptr;
+#ifdef NO_JSON_RPC
+    if ( iJsonRpcPortNumber != INVALID_PORT || !strJsonRpcSecretFileName.isEmpty() )
+    {
+        qWarning() << "No JSON-RPC support in this build.";
+    }
+#else
+    CRpcServer*   pRpcServer = nullptr;
 
     if ( iJsonRpcPortNumber != INVALID_PORT )
     {
@@ -845,9 +884,11 @@ int main ( int argc, char** argv )
             exit ( 1 );
         }
     }
+#endif
 
     try
     {
+#ifndef SERVER_ONLY
         if ( bIsClient )
         {
             // Client:
@@ -872,12 +913,14 @@ int main ( int argc, char** argv )
                 CInstPictures::UpdateTableOnLanguageChange();
             }
 
+#    ifndef NO_JSON_RPC
             if ( pRpcServer )
             {
                 new CClientRpc ( &Client, pRpcServer, pRpcServer );
             }
+#    endif
 
-#ifndef HEADLESS
+#    ifndef HEADLESS
             if ( bUseGUI )
             {
                 // GUI object
@@ -896,7 +939,7 @@ int main ( int argc, char** argv )
                 pApp->exec();
             }
             else
-#endif
+#    endif
             {
                 // only start application without using the GUI
                 qInfo() << qUtf8Printable ( GetVersionAndNameStr ( false ) );
@@ -905,6 +948,7 @@ int main ( int argc, char** argv )
             }
         }
         else
+#endif
         {
             // Server:
             // actual server object
@@ -926,13 +970,16 @@ int main ( int argc, char** argv )
                              bUseMultithreading,
                              bDisableRecording,
                              bDelayPan,
+                             bPunish,
                              bEnableIPv6,
                              eLicenceType );
 
+#ifndef NO_JSON_RPC
             if ( pRpcServer )
             {
                 new CServerRpc ( &Server, pRpcServer, pRpcServer );
             }
+#endif
 
 #ifndef HEADLESS
             if ( bUseGUI )
@@ -1014,7 +1061,7 @@ QString UsageArguments ( char** argv )
            "\n"
            "Common options:\n"
            "  -i, --inifile         initialization file name\n"
-           "                        (not supported for headless server mode)\n"
+           "                        (not supported for headless Server mode)\n"
            "  -n, --nogui           disable GUI (\"headless\")\n"
            "  -p, --port            set the local port number\n"
            "      --jsonrpcport     enable JSON-RPC server, set TCP port number\n"
@@ -1029,39 +1076,40 @@ QString UsageArguments ( char** argv )
            "  -6, --enableipv6      enable IPv6 addressing (IPv4 is always enabled)\n"
            "\n"
            "Server only:\n"
-           "  -d, --discononquit    disconnect all clients on quit\n"
-           "  -e, --directoryserver address of the directory server with which to register\n"
-           "                        (or 'localhost' to host a server list on this server)\n"
-           "      --directoryfile   enable server list persistence, set file name\n"
-           "  -f, --listfilter      server list whitelist filter.  Format:\n"
+           "  -d, --discononquit    disconnect all Clients on quit\n"
+           "  -e, --directoryserver address of the directory Server with which to register\n"
+           "                        (or 'localhost' to host a server list on this Server)\n"
+           "      --directoryfile   Remember registered Servers even if the Directory is restarted. Directory Servers only.\n"
+           "  -f, --listfilter      Server list whitelist filter.  Format:\n"
            "                        [IP address 1];[IP address 2];[IP address 3]; ...\n"
            "  -F, --fastupdate      use 64 samples frame size mode\n"
            "  -l, --log             enable logging, set file name\n"
            "  -L, --licence         show an agreement window before users can connect\n"
            "  -m, --htmlstatus      enable HTML status file, set file name\n"
-           "  -o, --serverinfo      registration info for this server.  Format:\n"
-           "                        [name];[city];[country as QLocale ID]\n"
-           "      --serverpublicip  public IP address for this server.  Needed when\n"
+           "  -o, --serverinfo      registration info for this Server.  Format:\n"
+           "                        [name];[city];[country as Qt5 QLocale ID]\n"
+           "      --serverpublicip  public IP address for this Server.  Needed when\n"
            "                        registering with a server list hosted\n"
            "                        behind the same NAT\n"
            "  -P, --delaypan        start with delay panning enabled\n"
+           "      --punish          punish loud clients by temporarily muting them\n"
            "  -R, --recording       sets directory to contain recorded jams\n"
            "      --norecord        disables recording (when enabled by default by -R)\n"
-           "  -s, --server          start server\n"
-           "      --serverbindip    IP address the server will bind to (rather than all)\n"
+           "  -s, --server          start Server\n"
+           "      --serverbindip    IP address the Server will bind to (rather than all)\n"
            "  -T, --multithreading  use multithreading to make better use of\n"
-           "                        multi-core CPUs and support more clients\n"
+           "                        multi-core CPUs and support more Clients\n"
            "  -u, --numchannels     maximum number of channels\n"
            "  -w, --welcomemessage  welcome message to display on connect\n"
-           "                        (string or filename)\n"
+           "                        (string or filename, HTML supported)\n"
            "  -z, --startminimized  start minimizied\n"
            "\n"
            "Client only:\n"
-           "  -c, --connect         connect to given server address on startup\n"
-           "  -j, --nojackconnect   disable auto Jack connections\n"
-           "  -M, --mutestream      starts the application in muted state\n"
-           "      --mutemyown       mute me in my personal mix (headless only)\n"
-           "      --clientname      client name (window title and jack client name)\n"
+           "  -c, --connect         connect to given Server address on startup\n"
+           "  -j, --nojackconnect   disable auto JACK connections\n"
+           "  -M, --mutestream      prevent others on a server from hearing what I play\n"
+           "      --mutemyown       prevent me from hearing what I play in the server mix (headless only)\n"
+           "      --clientname      Client name (window title and JACK client name)\n"
            "      --ctrlmidich      MIDI controller channel to listen\n"
            "\n"
            "Example: %1 -s --inifile myinifile.ini\n"

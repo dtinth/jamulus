@@ -25,11 +25,9 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
 #include <QDateTime>
 #include <QHostAddress>
 #include <QFileInfo>
-#include <QtConcurrent>
 #include <algorithm>
 #ifdef USE_OPUS_SHARED_LIB
 #    include "opus/opus_custom.h"
@@ -53,71 +51,6 @@
 #define INVALID_CHANNEL_ID ( MAX_NUM_CHANNELS + 1 )
 
 /* Classes ********************************************************************/
-#if ( defined( WIN32 ) || defined( _WIN32 ) )
-// using QTimer for Windows
-class CHighPrecisionTimer : public QObject
-{
-    Q_OBJECT
-
-public:
-    CHighPrecisionTimer ( const bool bNewUseDoubleSystemFrameSize );
-
-    void Start();
-    void Stop();
-    bool isActive() const { return Timer.isActive(); }
-
-protected:
-    QTimer       Timer;
-    CVector<int> veciTimeOutIntervals;
-    int          iCurPosInVector;
-    int          iIntervalCounter;
-    bool         bUseDoubleSystemFrameSize;
-
-public slots:
-    void OnTimer();
-
-signals:
-    void timeout();
-};
-#else
-// using mach timers for Mac and nanosleep for Linux
-#    if defined( __APPLE__ ) || defined( __MACOSX )
-#        include <mach/mach.h>
-#        include <mach/mach_error.h>
-#        include <mach/mach_time.h>
-#    else
-#        include <sys/time.h>
-#    endif
-
-class CHighPrecisionTimer : public QThread
-{
-    Q_OBJECT
-
-public:
-    CHighPrecisionTimer ( const bool bUseDoubleSystemFrameSize );
-
-    void Start();
-    void Stop();
-    bool isActive() { return bRun; }
-
-protected:
-    virtual void run();
-
-    bool     bRun;
-
-#    if defined( __APPLE__ ) || defined( __MACOSX )
-    uint64_t Delay;
-    uint64_t NextEnd;
-#    else
-    long     Delay;
-    timespec NextEnd;
-#    endif
-
-signals:
-    void timeout();
-};
-#endif
-
 template<unsigned int slotId>
 class CServerSlots : public CServerSlots<slotId - 1>
 {
@@ -170,6 +103,7 @@ public:
               const bool         bNUseMultithreading,
               const bool         bDisableRecording,
               const bool         bNDelayPan,
+              const bool         bNPunish,
               const bool         bNEnableIPv6,
               const ELicenceType eNLicenceType );
 
@@ -234,6 +168,10 @@ public:
 
     void SetEnableDelayPanning ( bool bDelayPanningOn ) { bDelayPan = bDelayPanningOn; }
     bool IsDelayPanningEnabled() { return bDelayPan; }
+
+    // Programmatic access to chat system --------------------------------------
+    void BroadcastChatText ( const QString& strChatTextHtml );
+    void SendChatText ( const int iChanNum, const QString& strChatTextHtml );
 
 protected:
     // access functions for actual channels
@@ -334,6 +272,10 @@ protected:
     // Channel levels
     CVector<uint16_t> vecChannelLevels;
 
+    // Warnings before punishing
+    CVector<uint8_t> vecStrikes;
+    CVector<uint8_t> vecStrikesCooldown;
+
     // actual working objects
     CHighPrioSocket Socket;
 
@@ -361,6 +303,9 @@ protected:
 
     // for delay panning
     bool bDelayPan;
+
+    // whether to punish loud clients
+    bool bPunish;
 
     // enable IPv6
     bool bEnableIPv6;
@@ -392,6 +337,9 @@ signals:
     void StopRecorder();
     void RecordingSessionStarted ( QString sessionDir );
     void EndRecorderThread();
+
+    // programmatic access to chat system
+    void ChatTextReceived ( const int iChanNum, const QString& strName, const QString& strChatText );
 
 public slots:
     void OnTimer();

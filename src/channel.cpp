@@ -34,6 +34,7 @@ CChannel::CChannel ( const bool bNIsServer ) :
     iSendSequenceNumber ( 0 ),
     iFadeInCnt ( 0 ),
     iFadeInCntMax ( FADE_IN_NUM_FRAMES_DBLE_FRAMESIZE ),
+    iFadeInPause ( 0 ),
     bIsEnabled ( false ),
     bIsServer ( bNIsServer ),
     bIsIdentified ( false ),
@@ -59,11 +60,11 @@ CChannel::CChannel ( const bool bNIsServer ) :
 
     // Connections -------------------------------------------------------------
 
-    // clang-format off
-// TODO if we later do not fire vectors in the emits, we can remove this again
-qRegisterMetaType<CVector<uint8_t> > ( "CVector<uint8_t>" );
-qRegisterMetaType<CHostAddress> ( "CHostAddress" );
-    // clang-format on
+    //### TODO: BEGIN ###//
+    // if we later do not fire vectors in the emits, we can remove this again
+    qRegisterMetaType<CVector<uint8_t>> ( "CVector<uint8_t>" );
+    qRegisterMetaType<CHostAddress> ( "CHostAddress" );
+    //### TODO: END ###//
 
     QObject::connect ( &Protocol, &CProtocol::MessReadyForSending, this, &CChannel::OnSendProtMessage );
 
@@ -304,6 +305,12 @@ float CChannel::GetGain ( const int iChanID )
     {
         return 0;
     }
+}
+
+void CChannel::ResetFadeIn()
+{
+    iFadeInCnt   = 0;
+    iFadeInPause = iFadeInCntMax / 3;
 }
 
 void CChannel::SetPan ( const int iChanID, const float fNewPan )
@@ -552,9 +559,13 @@ EPutDataStat CChannel::PutAudioData ( const CVector<uint8_t>& vecbyData, const i
                 }
 
                 // manage audio fade-in counter, after channel is identified
-                if ( iFadeInCnt < iFadeInCntMax && bIsIdentified )
+                if ( iFadeInCnt < iFadeInCntMax && bIsIdentified && iFadeInPause <= 0 )
                 {
                     iFadeInCnt++;
+                }
+                else if ( iFadeInPause > 0 )
+                {
+                    iFadeInPause--;
                 }
             }
             else

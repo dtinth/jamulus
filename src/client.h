@@ -41,20 +41,20 @@
 #include "buffer.h"
 #include "signalhandler.h"
 
-#if defined( _WIN32 ) && !defined( JACK_REPLACES_ASIO )
-#    include "../windows/sound.h"
+#if defined( _WIN32 ) && !defined( JACK_ON_WINDOWS )
+#    include "sound/asio/sound.h"
 #else
 #    if ( defined( Q_OS_MACX ) ) && !defined( JACK_REPLACES_COREAUDIO )
-#        include "../mac/sound.h"
+#        include "sound/coreaudio-mac/sound.h"
 #    else
 #        if defined( Q_OS_IOS )
-#            include "../ios/sound.h"
+#            include "sound/coreaudio-ios/sound.h"
 #        else
 #            ifdef ANDROID
-#                include "../android/sound.h"
+#                include "sound/oboe/sound.h"
 #            else
-#                include "../linux/sound.h"
-#                ifndef JACK_REPLACES_ASIO // these headers are not available in Windows OS
+#                include "sound/jack/sound.h"
+#                ifndef JACK_ON_WINDOWS // these headers are not available in Windows OS
 #                    include <sched.h>
 #                    include <netdb.h>
 #                endif
@@ -72,6 +72,10 @@
 
 // audio reverberation range
 #define AUD_REVERB_MAX 100
+
+// default delay period between successive gain updates (ms)
+// this will be increased to double the ping time if connected to a distant server
+#define DEFAULT_GAIN_DELAY_PERIOD_MS 50
 
 // OPUS number of coded bytes per audio packet
 // TODO we have to use new numbers for OPUS to avoid that old CELT packets
@@ -236,6 +240,8 @@ public:
     void SetMuteOutStream ( const bool bDoMute ) { bMuteOutStream = bDoMute; }
 
     void SetRemoteChanGain ( const int iId, const float fGain, const bool bIsMyOwnFader );
+    void OnTimerRemoteChanGain();
+    void StartDelayTimer();
 
     void SetRemoteChanPan ( const int iId, const float fPan ) { Channel.SetRemoteChanPan ( iId, fPan ); }
 
@@ -341,6 +347,7 @@ protected:
 
     EGUIDesign  eGUIDesign;
     EMeterStyle eMeterStyle;
+    bool        bEnableAudioAlerts;
     bool        bEnableOPUS64;
 
     bool   bJitterBufferOK;
@@ -353,6 +360,15 @@ protected:
 
     // for ping measurement
     QElapsedTimer PreciseTime;
+
+    // for gain rate limiting
+    QMutex MutexGain;
+    QTimer TimerGain;
+    int    minGainId;
+    int    maxGainId;
+    float  oldGain[MAX_NUM_CHANNELS];
+    float  newGain[MAX_NUM_CHANNELS];
+    int    iCurPingTime;
 
     CSignalHandler* pSignalHandler;
 
@@ -387,6 +403,7 @@ protected slots:
     void OnControllerInFaderIsMute ( int iChannelIdx, bool bIsMute );
     void OnControllerInMuteMyself ( bool bMute );
     void OnClientIDReceived ( int iChanID );
+    void OnConClientListMesReceived ( CVector<CChannelInfo> vecChanInfo );
 
 signals:
     void ConClientListMesReceived ( CVector<CChannelInfo> vecChanInfo );

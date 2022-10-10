@@ -23,7 +23,6 @@
 \******************************************************************************/
 
 #include "util.h"
-#include "client.h"
 
 /* Implementation *************************************************************/
 // Input level meter implementation --------------------------------------------
@@ -375,6 +374,192 @@ void CAudioReverb::Process ( CVector<int16_t>& vecsStereoInOut, const bool bReve
     }
 }
 
+// CHighPrecisionTimer implementation ******************************************
+#ifdef _WIN32
+CHighPrecisionTimer::CHighPrecisionTimer ( const bool bNewUseDoubleSystemFrameSize ) : bUseDoubleSystemFrameSize ( bNewUseDoubleSystemFrameSize )
+{
+    // add some error checking, the high precision timer implementation only
+    // supports 64 and 128 samples frame size at 48 kHz sampling rate
+#    if ( SYSTEM_FRAME_SIZE_SAMPLES != 64 ) && ( DOUBLE_SYSTEM_FRAME_SIZE_SAMPLES != 128 )
+#        error "Only system frame size of 64 and 128 samples is supported by this module"
+#    endif
+#    if ( SYSTEM_SAMPLE_RATE_HZ != 48000 )
+#        error "Only a system sample rate of 48 kHz is supported by this module"
+#    endif
+
+    // Since QT only supports a minimum timer resolution of 1 ms but for our
+    // server we require a timer interval of 2.333 ms for 128 samples
+    // frame size at 48 kHz sampling rate.
+    // To support this interval, we use a timer with 2 ms resolution for 128
+    // samples frame size and 1 ms resolution for 64 samples frame size.
+    // Then we fire the actual frame timer if the error to the actual
+    // required interval is minimum.
+    veciTimeOutIntervals.Init ( 3 );
+
+    // for 128 sample frame size at 48 kHz sampling rate with 2 ms timer resolution:
+    // actual intervals:  0.0  2.666  5.333  8.0
+    // quantized to 2 ms: 0    2      6      8 (0)
+    // for 64 sample frame size at 48 kHz sampling rate with 1 ms timer resolution:
+    // actual intervals:  0.0  1.333  2.666  4.0
+    // quantized to 2 ms: 0    1      3      4 (0)
+    veciTimeOutIntervals[0] = 0;
+    veciTimeOutIntervals[1] = 1;
+    veciTimeOutIntervals[2] = 0;
+
+    Timer.setTimerType ( Qt::PreciseTimer );
+
+    // connect timer timeout signal
+    QObject::connect ( &Timer, &QTimer::timeout, this, &CHighPrecisionTimer::OnTimer );
+}
+
+void CHighPrecisionTimer::Start()
+{
+    // reset position pointer and counter
+    iCurPosInVector  = 0;
+    iIntervalCounter = 0;
+
+    if ( bUseDoubleSystemFrameSize )
+    {
+        // start internal timer with 2 ms resolution for 128 samples frame size
+        Timer.start ( 2 );
+    }
+    else
+    {
+        // start internal timer with 1 ms resolution for 64 samples frame size
+        Timer.start ( 1 );
+    }
+}
+
+void CHighPrecisionTimer::Stop()
+{
+    // stop timer
+    Timer.stop();
+}
+
+void CHighPrecisionTimer::OnTimer()
+{
+    // check if maximum number of high precision timer intervals are
+    // finished
+    if ( veciTimeOutIntervals[iCurPosInVector] == iIntervalCounter )
+    {
+        // reset interval counter
+        iIntervalCounter = 0;
+
+        // go to next position in vector, take care of wrap around
+        iCurPosInVector++;
+        if ( iCurPosInVector == veciTimeOutIntervals.Size() )
+        {
+            iCurPosInVector = 0;
+        }
+
+        // minimum time error to actual required timer interval is reached,
+        // emit signal for server
+        emit timeout();
+    }
+    else
+    {
+        // next high precision timer interval
+        iIntervalCounter++;
+    }
+}
+#else // Mac and Linux
+CHighPrecisionTimer::CHighPrecisionTimer ( const bool bUseDoubleSystemFrameSize ) : bRun ( false )
+{
+    // calculate delay in ns
+    uint64_t iNsDelay;
+
+    if ( bUseDoubleSystemFrameSize )
+    {
+        iNsDelay = ( (uint64_t) DOUBLE_SYSTEM_FRAME_SIZE_SAMPLES * 1000000000 ) / (uint64_t) SYSTEM_SAMPLE_RATE_HZ; // in ns
+    }
+    else
+    {
+        iNsDelay = ( (uint64_t) SYSTEM_FRAME_SIZE_SAMPLES * 1000000000 ) / (uint64_t) SYSTEM_SAMPLE_RATE_HZ; // in ns
+    }
+
+#    if defined( __APPLE__ ) || defined( __MACOSX )
+    // calculate delay in mach absolute time
+    struct mach_timebase_info timeBaseInfo;
+    mach_timebase_info ( &timeBaseInfo );
+
+    Delay = ( iNsDelay * (uint64_t) timeBaseInfo.denom ) / (uint64_t) timeBaseInfo.numer;
+#    else
+    // set delay
+    Delay = iNsDelay;
+#    endif
+}
+
+void CHighPrecisionTimer::Start()
+{
+    // only start if not already running
+    if ( !bRun )
+    {
+        // set run flag
+        bRun = true;
+
+        // set initial end time
+#    if defined( __APPLE__ ) || defined( __MACOSX )
+        NextEnd = mach_absolute_time() + Delay;
+#    else
+        clock_gettime ( CLOCK_MONOTONIC, &NextEnd );
+
+        NextEnd.tv_nsec += Delay;
+        if ( NextEnd.tv_nsec >= 1000000000L )
+        {
+            NextEnd.tv_sec++;
+            NextEnd.tv_nsec -= 1000000000L;
+        }
+#    endif
+
+        // start thread
+        QThread::start ( QThread::TimeCriticalPriority );
+    }
+}
+
+void CHighPrecisionTimer::Stop()
+{
+    // set flag so that thread can leave the main loop
+    bRun = false;
+
+    // give thread some time to terminate
+    wait ( 5000 );
+}
+
+void CHighPrecisionTimer::run()
+{
+    // loop until the thread shall be terminated
+    while ( bRun )
+    {
+        // call processing routine by fireing signal
+
+        //### TODO: BEGIN ###//
+        // by emit a signal we leave the high priority thread -> maybe use some
+        // other connection type to have something like a true callback, e.g.
+        //     "Qt::DirectConnection" -> Can this work?
+        emit timeout();
+        //### TODO: END ###//
+
+        // now wait until the next buffer shall be processed (we
+        // use the "increment method" to make sure we do not introduce
+        // a timing drift)
+#    if defined( __APPLE__ ) || defined( __MACOSX )
+        mach_wait_until ( NextEnd );
+
+        NextEnd += Delay;
+#    else
+        clock_nanosleep ( CLOCK_MONOTONIC, TIMER_ABSTIME, &NextEnd, NULL );
+
+        NextEnd.tv_nsec += Delay;
+        if ( NextEnd.tv_nsec >= 1000000000L )
+        {
+            NextEnd.tv_sec++;
+            NextEnd.tv_nsec -= 1000000000L;
+        }
+#    endif
+    }
+}
+#endif
+
 /******************************************************************************\
 * GUI Utilities                                                                *
 \******************************************************************************/
@@ -408,21 +593,27 @@ CAboutDlg::CAboutDlg ( QWidget* parent ) : CBaseDlg ( parent )
                         "</font></p>" );
 
     // libraries used by this compilation
-    txvLibraries->setText ( tr ( "This app uses the following libraries, resources or code snippets:" ) + "<br><p>" +
-                            tr ( "Qt cross-platform application framework" ) +
-                            ", <i><a href=\"https://www.qt.io\">https://www.qt.io</a></i></p>"
-                            "<p>Opus Interactive Audio Codec"
-                            ", <i><a href=\"https://www.opus-codec.org\">https://www.opus-codec.org</a></i></p>"
-                            "<p>" +
-                            tr ( "Audio reverberation code by Perry R. Cook and Gary P. Scavone" ) +
-                            ", 1995 - 2021, <i><a href=\"https://ccrma.stanford.edu/software/stk\">"
-                            "The Synthesis ToolKit in C++ (STK)</a></i></p>"
-                            "<p>" +
-                            tr ( "Some pixmaps are from the" ) +
-                            " Open Clip Art Library (OCAL), "
-                            "<i><a href=\"https://openclipart.org\">https://openclipart.org</a></i></p>"
-                            "<p>" +
-                            tr ( "Flag icons by Mark James" ) + ", <i><a href=\"http://www.famfamfam.com\">http://www.famfamfam.com</a></i></p>" );
+    txvLibraries->setText (
+        tr ( "This app uses the following libraries, resources or code snippets:" ) + "<br><p>" + tr ( "Qt cross-platform application framework" ) +
+        ", <i><a href=\"https://www.qt.io\">https://www.qt.io</a></i></p>"
+        "<p>Opus Interactive Audio Codec"
+        ", <i><a href=\"https://www.opus-codec.org\">https://www.opus-codec.org</a></i></p>"
+#    if defined( _WIN32 ) && !defined( WITH_JACK )
+        "<p>ASIO (Audio Stream I/O) SDK"
+        ", <i><a href=\"https://www.steinberg.net/developers/\">https://www.steinberg.net/developers</a></i><br>" +
+        "ASIO is a trademark and software of Steinberg Media Technologies GmbH</p>"
+#    endif
+        "<p>" +
+        tr ( "Audio reverberation code by Perry R. Cook and Gary P. Scavone" ) +
+        ", 1995 - 2021, <i><a href=\"https://ccrma.stanford.edu/software/stk\">"
+        "The Synthesis ToolKit in C++ (STK)</a></i></p>"
+        "<p>" +
+        tr ( "Some pixmaps are from the" ) +
+        " Open Clip Art Library (OCAL), "
+        "<i><a href=\"https://openclipart.org\">https://openclipart.org</a></i></p>"
+        "<p>" +
+        tr ( "Flag icons by Mark James" ) + ", <i><a href=\"http://www.famfamfam.com\">http://www.famfamfam.com</a></i></p>" + "<p>" +
+        tr ( "Some sound samples are from" ) + " Freesound, " + "<i><a href=\"https://freesound.org\">https://freesound.org</a></i></p>" );
 
     // contributors list
     txvContributors->setText (
@@ -492,6 +683,8 @@ CAboutDlg::CAboutDlg ( QWidget* parent ) : CBaseDlg ( parent )
         "<p>Gary Wang (<a href=\"https://github.com/BLumia\">BLumia</a>)</p>"
         "<p>RobyDati (<a href=\"https://github.com/RobyDati\">RobyDati</a>)</p>"
         "<p>Rob-NY (<a href=\"https://github.com/Rob-NY\">Rob-NY</a>)</p>"
+        "<p>Thai Pangsakulyanont (<a href=\"https://github.com/dtinth\">dtinth</a>)</p>"
+        "<p>Peter Goderie (<a href=\"https://github.com/pgScorpio\">pgScorpio</a>)</p>"
         "<br>" +
         tr ( "For details on the contributions check out the %1" )
             .arg ( "<a href=\"https://github.com/jamulussoftware/jamulus/graphs/contributors\">" + tr ( "Github Contributors list" ) + "</a>." ) );
@@ -533,6 +726,10 @@ CAboutDlg::CAboutDlg ( QWidget* parent ) : CBaseDlg ( parent )
                               tr ( "Swedish" ) +
                               "</b></p>"
                               "<p>Daniel (<a href=\"https://github.com/genesisproject2020\">genesisproject2020</a>)</p>"
+                              "<p><b>" +
+                              tr ( "Korean" ) +
+                              "</b></p>"
+                              "<p>Jung-Kyu Park (<a href=\"https://github.com/bagjunggyu\">bagjunggyu</a>)</p>"
                               "<p><b>" +
                               tr ( "Slovak" ) +
                               "</b></p>"
@@ -1199,7 +1396,42 @@ CInstPictures::EInstCategory CInstPictures::GetCategory ( const int iInstrument 
 }
 
 // Locale management class -----------------------------------------------------
-QString CLocale::GetCountryFlagIconsResourceReference ( const QLocale::Country eCountry )
+QLocale::Country CLocale::WireFormatCountryCodeToQtCountry ( unsigned short iCountryCode )
+{
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 0, 0 )
+    // The Jamulus protocol wire format gives us Qt5 country IDs.
+    // Qt6 changed those IDs, so we have to convert back:
+    return (QLocale::Country) wireFormatToQt6Table[iCountryCode];
+#else
+    return (QLocale::Country) iCountryCode;
+#endif
+}
+
+unsigned short CLocale::QtCountryToWireFormatCountryCode ( const QLocale::Country eCountry )
+{
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 0, 0 )
+    // The Jamulus protocol wire format expects Qt5 country IDs.
+    // Qt6 changed those IDs, so we have to convert back:
+    return qt6CountryToWireFormat[(unsigned short) eCountry];
+#else
+    return (unsigned short) eCountry;
+#endif
+}
+
+bool CLocale::IsCountryCodeSupported ( unsigned short iCountryCode )
+{
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 0, 0 )
+    // On newer Qt versions there might be codes which do not have a Qt5 equivalent.
+    // We have no way to support those sanely right now.
+    return qt6CountryToWireFormat[iCountryCode] != -1;
+#else
+    // All Qt5 codes are supported.
+    Q_UNUSED ( iCountryCode );
+    return true;
+#endif
+}
+
+QString CLocale::GetCountryFlagIconsResourceReference ( const QLocale::Country eCountry /* Qt-native value */ )
 {
     QString strReturn = "";
 
@@ -1335,7 +1567,7 @@ QString GetVersionAndNameStr ( const bool bDisplayInGui )
         strVersionText += " *** ";
     }
 
-    strVersionText += APP_NAME + QCoreApplication::tr ( ", Version " ) + VERSION;
+    strVersionText += QCoreApplication::tr ( "%1, Version %2", "%1 is app name, %2 is version number" ).arg ( APP_NAME ).arg ( VERSION );
 
     if ( bDisplayInGui )
     {
@@ -1348,7 +1580,7 @@ QString GetVersionAndNameStr ( const bool bDisplayInGui )
 
     if ( !bDisplayInGui )
     {
-        strVersionText += QCoreApplication::tr ( "Internet Jam Session Software" );
+        strVersionText += "Internet Jam Session Software";
         strVersionText += "\n *** ";
     }
 
@@ -1356,39 +1588,40 @@ QString GetVersionAndNameStr ( const bool bDisplayInGui )
 
     if ( !bDisplayInGui )
     {
-        // additional text to show in console output
+        // additional non-translated text to show in console output
+        strVersionText += "\n *** <https://www.gnu.org/licenses/old-licenses/gpl-2.0.html>";
         strVersionText += "\n *** ";
-        strVersionText += "<https://www.gnu.org/licenses/old-licenses/gpl-2.0.html>";
+        strVersionText += "\n *** This program is free software; you can redistribute it and/or modify it under";
+        strVersionText += "\n *** the terms of the GNU General Public License as published by the Free Software";
+        strVersionText += "\n *** Foundation; either version 2 of the License, or (at your option) any later version.";
+        strVersionText += "\n *** There is NO WARRANTY, to the extent permitted by law.";
         strVersionText += "\n *** ";
+        strVersionText += "\n *** Using the following libraries, resources or code snippets:";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "This program is free software; you can redistribute it and/or modify it under" );
+        strVersionText += QString ( "\n *** Qt framework %1" ).arg ( QT_VERSION_STR );
+        strVersionText += "\n *** <https://doc.qt.io/qt-5/lgpl.html>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "the terms of the GNU General Public License as published by the Free Software" );
+        strVersionText += "\n *** Opus Interactive Audio Codec";
+        strVersionText += "\n *** <https://www.opus-codec.org>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Foundation; either version 2 of the License, or (at your option) any later version." );
+#if defined( _WIN32 ) && !defined( WITH_JACK )
+        strVersionText += "\n *** ASIO (Audio Stream I/O) SDK";
+        strVersionText += "\n *** <https://www.steinberg.net/developers>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "There is NO WARRANTY, to the extent permitted by law." );
+#endif
+        strVersionText += "\n *** Audio reverberation code by Perry R. Cook and Gary P. Scavone";
+        strVersionText += "\n *** <https://ccrma.stanford.edu/software/stk>";
         strVersionText += "\n *** ";
+        strVersionText += "\n *** Some pixmaps are from the Open Clip Art Library (OCAL)";
+        strVersionText += "\n *** <https://openclipart.org>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Using the following libraries, resources or code snippets:" );
+        strVersionText += "\n *** Flag icons by Mark James";
+        strVersionText += "\n *** <http://www.famfamfam.com>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Qt framework " ) + QT_VERSION_STR;
-        strVersionText += " <https://doc.qt.io/qt-5/lgpl.html>";
+        strVersionText += "\n *** Some sound samples are from Freesound";
+        strVersionText += "\n *** <https://freesound.org>";
         strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Opus Interactive Audio Codec" );
-        strVersionText += " <https://www.opus-codec.org>";
-        strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Audio reverberation code by Perry R. Cook and Gary P. Scavone" );
-        strVersionText += " <https://ccrma.stanford.edu/software/stk>";
-        strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Some pixmaps are from the Open Clip Art Library (OCAL)" );
-        strVersionText += " <https://openclipart.org>";
-        strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Flag icons by Mark James" );
-        strVersionText += " <http://www.famfamfam.com>";
-        strVersionText += "\n *** ";
-        strVersionText += "\n *** ";
-        strVersionText += QCoreApplication::tr ( "Copyright (C) 2005-2022 The Jamulus Development Team" );
+        strVersionText += "\n *** Copyright (C) 2005-2022 The Jamulus Development Team";
         strVersionText += "\n";
     }
 

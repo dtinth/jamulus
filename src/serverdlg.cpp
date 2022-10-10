@@ -175,14 +175,16 @@ CServerDlg::CServerDlg ( CServer* pNServP, CServerSettings* pNSetP, const bool b
     pbtRecordingDir->setWhatsThis ( "<b>" + tr ( "Main Recording Directory" ) + ":</b> " +
                                     tr ( "Click the button to open the dialog that allows the main recording directory to be selected.  "
                                          "The chosen value must exist and be writeable (allow creation of sub-directories "
-                                         "by the user Jamulus is running as)." ) );
+                                         "by the user %1 is running as)." )
+                                        .arg ( APP_NAME ) );
 
     edtRecordingDir->setAccessibleName ( tr ( "Main recording directory text box (read-only)" ) );
     edtRecordingDir->setWhatsThis ( "<b>" + tr ( "Main Recording Directory" ) + ":</b> " +
                                     tr ( "The current value of the main recording directory. "
                                          "The chosen value must exist and be writeable (allow creation of sub-directories "
-                                         "by the user Jamulus is running as). "
-                                         "Click the button to open the dialog that allows the main recording directory to be selected." ) );
+                                         "by the user %1 is running as). "
+                                         "Click the button to open the dialog that allows the main recording directory to be selected." )
+                                        .arg ( APP_NAME ) );
 
     tbtClearRecordingDir->setAccessibleName ( tr ( "Clear the recording directory button" ) );
     tbtClearRecordingDir->setWhatsThis ( "<b>" + tr ( "Clear Recording Directory" ) + ":</b> " +
@@ -202,17 +204,19 @@ CServerDlg::CServerDlg ( CServer* pNServP, CServerSettings* pNSetP, const bool b
     pbtServerListPersistence->setAccessibleName ( tr ( "Server List Filename dialog push button" ) );
     pbtServerListPersistence->setWhatsThis ( "<b>" + tr ( "Server List Filename" ) + ":</b> " +
                                              tr ( "Click the button to open the dialog that allows the "
-                                                  "server list persistence file name to be set. The user Jamulus is running as "
+                                                  "server list persistence file name to be set. The user %1 is running as "
                                                   "needs to be able to create the file name specified "
-                                                  "although it may already exist (it will get overwritten on save)." ) );
+                                                  "although it may already exist (it will get overwritten on save)." )
+                                                 .arg ( APP_NAME ) );
 
     edtServerListPersistence->setAccessibleName ( tr ( "Server List Filename text box (read-only)" ) );
     edtServerListPersistence->setWhatsThis ( "<b>" + tr ( "Server List Filename" ) + ":</b> " +
-                                             tr ( "The current value of server list persistence file name. The user Jamulus is running as "
+                                             tr ( "The current value of server list persistence file name. The user %1 is running as "
                                                   "needs to be able to create the file name specified "
                                                   "although it may already exist (it will get overwritten on save). "
                                                   "Click the button to open the dialog that allows the "
-                                                  "server list persistence file name to be set." ) );
+                                                  "server list persistence file name to be set." )
+                                                 .arg ( APP_NAME ) );
 
     tbtClearServerListPersistence->setAccessibleName ( tr ( "Clear the server list file name button" ) );
     tbtClearServerListPersistence->setWhatsThis ( "<b>" + tr ( "Clear Server List Filename" ) + ":</b> " +
@@ -269,11 +273,11 @@ CServerDlg::CServerDlg ( CServer* pNServP, CServerSettings* pNSetP, const bool b
     lvwClients->setColumnWidth ( 3, 50 );  //         Channels
     lvwClients->clear();
 
-    // clang-format off
-// TEST workaround for resize problem of window after iconize in task bar
-lvwClients->setMinimumWidth ( 170 + 130 + 60 + 205 );
-lvwClients->setMinimumHeight ( 140 );
-    // clang-format on
+    //### TODO: BEGIN ###//
+    // workaround for resize problem of window after iconize in task bar
+    lvwClients->setMinimumWidth ( 170 + 130 + 60 + 205 );
+    lvwClients->setMinimumHeight ( 140 );
+    //### TODO: END ###//
 
     // insert items in reverse order because in Windows all of them are
     // always visible -> put first item on the top
@@ -308,12 +312,22 @@ lvwClients->setMinimumHeight ( 140 );
     for ( int iCurCntry = static_cast<int> ( QLocale::AnyCountry ); iCurCntry < static_cast<int> ( QLocale::LastCountry ); iCurCntry++ )
     {
         // add all countries except of the "Default" country
-        if ( static_cast<QLocale::Country> ( iCurCntry ) != QLocale::AnyCountry )
+        if ( static_cast<QLocale::Country> ( iCurCntry ) == QLocale::AnyCountry )
         {
-            // store the country enum index together with the string (this is
-            // important since we sort the combo box items later on)
-            cbxLocationCountry->addItem ( QLocale::countryToString ( static_cast<QLocale::Country> ( iCurCntry ) ), iCurCntry );
+            continue;
         }
+
+        if ( !CLocale::IsCountryCodeSupported ( iCurCntry ) )
+        {
+            // The current Qt version which is the base for the loop may support
+            // more country codes than our protocol does. Therefore, skip
+            // the unsupported options to avoid surprises.
+            continue;
+        }
+
+        // store the country enum index together with the string (this is
+        // important since we sort the combo box items later on)
+        cbxLocationCountry->addItem ( QLocale::countryToString ( static_cast<QLocale::Country> ( iCurCntry ) ), iCurCntry );
     }
 
     // sort country combo box items in alphabetical order
@@ -720,7 +734,7 @@ void CServerDlg::UpdateGUIDependencies()
 
     if ( pServer->IsDirectoryServer() )
     {
-        strStatus = tr ( "Now a directory server" );
+        strStatus = tr ( "Now a directory" );
     }
     else
     {

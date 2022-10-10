@@ -151,7 +151,8 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
     lblDelay->setWhatsThis ( strLEDDelay );
     ledDelay->setWhatsThis ( strLEDDelay );
     ledDelay->setToolTip ( tr ( "If this LED indicator turns red, "
-                                "you will not have much fun using the application." ) +
+                                "you will not have much fun using %1." )
+                               .arg ( APP_NAME ) +
                            TOOLTIP_COM_END_TEXT );
 
     ledDelay->setAccessibleName ( tr ( "Delay status LED indicator" ) );
@@ -181,14 +182,14 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
 
     lblBuffers->setWhatsThis ( strLEDBuffers );
     ledBuffers->setWhatsThis ( strLEDBuffers );
+    ledBuffers->setToolTip ( tr ( "If this LED indicator turns red, "
+                                  "the audio stream is interrupted." ) +
+                             TOOLTIP_COM_END_TEXT );
 
     ledBuffers->setAccessibleName ( tr ( "Local Jitter Buffer status LED indicator" ) );
 
-    // current connection status parameter
-    QString strConnStats = "<b>" +
-                           tr ( "Current Connection Status "
-                                "Parameter" ) +
-                           ":</b> " +
+    // current connection status details
+    QString strConnStats = "<b>" + tr ( "Current Connection Status" ) + ":</b> " +
                            tr ( "The Ping Time is the time required for the audio "
                                 "stream to travel from the client to the server and back again. This "
                                 "delay is introduced by the network and should be about "
@@ -203,12 +204,6 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
     lblPingVal->setWhatsThis ( strConnStats );
     lblDelay->setWhatsThis ( strConnStats );
     lblDelayVal->setWhatsThis ( strConnStats );
-    ledDelay->setWhatsThis ( strConnStats );
-    ledDelay->setToolTip ( tr ( "If this LED indicator turns red, "
-                                "you will not have much fun using "
-                                "the %1 software." )
-                               .arg ( APP_NAME ) +
-                           TOOLTIP_COM_END_TEXT );
     lblPingVal->setText ( "---" );
     lblPingUnit->setText ( "" );
     lblDelayVal->setText ( "---" );
@@ -258,6 +253,9 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
 
     // set window title (with no clients connected -> "0")
     SetMyWindowTitle ( 0 );
+
+    // track number of clients to detect joins/leaves for audio alerts
+    iClients = 0;
 
     // prepare Mute Myself info label (invisible by default)
     lblGlobalInfoLabel->setStyleSheet ( ".QLabel { background: red; }" );
@@ -827,6 +825,12 @@ void CClientDlg::OnCLVersionAndOSReceived ( CHostAddress, COSUtil::EOpSystemType
 
 void CClientDlg::OnChatTextReceived ( QString strChatText )
 {
+    if ( pSettings->bEnableAudioAlerts )
+    {
+        QSoundEffect* sf = new QSoundEffect();
+        sf->setSource ( QUrl::fromLocalFile ( ":sounds/res/sounds/new_message.wav" ) );
+        sf->play();
+    }
     ChatDlg.AddChatText ( strChatText );
 
     // Open chat dialog. If a server welcome message is received, we force
@@ -881,6 +885,17 @@ void CClientDlg::OnConClientListMesReceived ( CVector<CChannelInfo> vecChanInfo 
 
 void CClientDlg::OnNumClientsChanged ( int iNewNumClients )
 {
+    if ( pSettings->bEnableAudioAlerts && iNewNumClients > iClients )
+    {
+        QSoundEffect* sf = new QSoundEffect();
+        sf->setSource ( QUrl::fromLocalFile ( ":sounds/res/sounds/new_user.wav" ) );
+        sf->play();
+    }
+
+    // iNewNumClients will be zero on the first trigger of this signal handler when connecting to a new server.
+    // Subsequent triggers will thus sound the alert (if enabled).
+    iClients = iNewNumClients;
+
     // update window title
     SetMyWindowTitle ( iNewNumClients );
 }
@@ -938,19 +953,16 @@ void CClientDlg::SetMyWindowTitle ( const int iNumClients )
 #if defined( Q_OS_MACX )
     // for MacOS only we show the number of connected clients as a
     // badge label text if more than one user is connected
-    // (only available in Qt5.2)
-#    if QT_VERSION >= QT_VERSION_CHECK( 5, 2, 0 )
     if ( iNumClients > 1 )
     {
         // show the number of connected clients
-        QtMac::setBadgeLabelText ( QString ( "%1" ).arg ( iNumClients ) );
+        SetMacBadgeLabelText ( QString ( "%1" ).arg ( iNumClients ) );
     }
     else
     {
         // clear the text (apply an empty string)
-        QtMac::setBadgeLabelText ( "" );
+        SetMacBadgeLabelText ( "" );
     }
-#    endif
 #endif
 }
 
@@ -1270,11 +1282,11 @@ void CClientDlg::Disconnect()
     TimerDetectFeedback.stop();
     bDetectFeedback = false;
 
-    // clang-format off
-// TODO is this still required???
-// immediately update status bar
-OnTimerStatus();
-    // clang-format on
+    //### TODO: BEGIN ###//
+    // is this still required???
+    // immediately update status bar
+    OnTimerStatus();
+    //### TODO: END ###//
 
     // reset LEDs
     ledBuffers->Reset();

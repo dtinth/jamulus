@@ -704,7 +704,7 @@ void CChannelFader::SetChannelInfos ( const CChannelInfo& cChanInfo )
     while ( tbfName.toNextBoundary() != -1 )
     {
         ++iCount;
-        if ( iCount == iInsPos )
+        if ( iCount == iInsPos && tbfName.position() + iLineNumber < strModText.length() )
         {
             strModText.insert ( tbfName.position() + iLineNumber, QString ( "\n" ) );
             iLineNumber++;
@@ -862,6 +862,11 @@ void CChannelFader::SetChannelInfos ( const CChannelInfo& cChanInfo )
     plblLabel->setToolTip ( strToolTip );
     plblLabel->setAccessibleName ( strAliasAccessible );
     plblLabel->setAccessibleDescription ( tr ( "Alias" ) );
+    pcbMute->setAccessibleName ( "Mute " + strAliasAccessible + ", " + strInstrumentAccessible );
+    pcbSolo->setAccessibleName ( "Solo " + strAliasAccessible + ", " + strInstrumentAccessible );
+    pcbGroup->setAccessibleName ( "Group " + strAliasAccessible + ", " + strInstrumentAccessible );
+    dynamic_cast<QWidget*> ( plblLabel->parent() )
+        ->setAccessibleName ( strAliasAccessible + ", " + strInstrumentAccessible + ", " + strLocationAccessible );
 }
 
 /******************************************************************************\
@@ -1168,7 +1173,7 @@ void CAudioMixerBoard::UpdateTitle()
 
     if ( eRecorderState == RS_RECORDING )
     {
-        strTitlePrefix = "[" + tr ( "RECORDING ACTIVE" ) + "] ";
+        strTitlePrefix = QString ( "[%1] " ).arg ( tr ( "RECORDING ACTIVE" ) );
     }
 
     // replace & signs with && (See Qt documentation for QLabel)
@@ -1178,7 +1183,7 @@ void CAudioMixerBoard::UpdateTitle()
     QString strEscServerName = strServerName;
     strEscServerName.replace ( "&", "&&" );
 
-    setTitle ( strTitlePrefix + tr ( "Personal Mix at: " ) + strEscServerName );
+    setTitle ( strTitlePrefix + tr ( "Personal Mix at: %1" ).arg ( strEscServerName ) );
     setAccessibleName ( title() );
 }
 

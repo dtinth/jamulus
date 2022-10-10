@@ -104,6 +104,7 @@ public:
     void  SetGain ( const int iChanID, const float fNewGain );
     float GetGain ( const int iChanID );
     float GetFadeInGain() { return static_cast<float> ( iFadeInCnt ) / iFadeInCntMax; }
+    void  ResetFadeIn();
 
     void  SetPan ( const int iChanID, const float fNewPan );
     float GetPan ( const int iChanID );
@@ -156,10 +157,10 @@ public:
     void CreateChatTextMes ( const QString& strChatText ) { Protocol.CreateChatTextMes ( strChatText ); }
     void CreateLicReqMes ( const ELicenceType eLicenceType ) { Protocol.CreateLicenceRequiredMes ( eLicenceType ); }
 
-    // clang-format off
-// TODO needed for compatibility to old servers >= 3.4.6 and <= 3.5.12
-void CreateReqChannelLevelListMes() { Protocol.CreateReqChannelLevelListMes(); }
-    // clang-format on
+    //### TODO: BEGIN ###//
+    // needed for compatibility to old servers >= 3.4.6 and <= 3.5.12
+    void CreateReqChannelLevelListMes() { Protocol.CreateReqChannelLevelListMes(); }
+    //### TODO: END ###//
 
     void CreateConClientListMes ( const CVector<CChannelInfo>& vecChanInfo ) { Protocol.CreateConClientListMes ( vecChanInfo ); }
 
@@ -212,6 +213,7 @@ protected:
     int iConTimeOutStartVal;
     int iFadeInCnt;
     int iFadeInCntMax;
+    int iFadeInPause;
 
     bool bIsEnabled;
     bool bIsServer;

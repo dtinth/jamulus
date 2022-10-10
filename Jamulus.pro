@@ -1,4 +1,4 @@
-VERSION = 3.8.2dev
+VERSION = 3.9.0dev
 
 # use target name which does not use a capital letter at the beginning
 contains(CONFIG, "noupcasename") {
@@ -28,25 +28,35 @@ QT += network \
     xml \
     concurrent
 
+contains(CONFIG, "nosound") {
+    CONFIG -= "nosound"
+    CONFIG += "serveronly"
+    warning("\"nosound\" is deprecated: please use \"serveronly\" for a server-only build.")
+}
+
 contains(CONFIG, "headless") {
     message(Headless mode activated.)
     QT -= gui
 } else {
     QT += widgets
+    QT += multimedia
 }
 
-LRELEASE_DIR = src/res/translation
-TRANSLATIONS = src/res/translation/translation_de_DE.ts \
-    src/res/translation/translation_fr_FR.ts \
-    src/res/translation/translation_pt_PT.ts \
-    src/res/translation/translation_pt_BR.ts \
-    src/res/translation/translation_es_ES.ts \
-    src/res/translation/translation_nl_NL.ts \
-    src/res/translation/translation_pl_PL.ts \
-    src/res/translation/translation_sk_SK.ts \
-    src/res/translation/translation_it_IT.ts \
-    src/res/translation/translation_sv_SE.ts \
-    src/res/translation/translation_zh_CN.ts
+# Hint: When adding new translations, make sure to update
+# DISTFILES (above) and src/resources.qrc as well.
+LRELEASE_DIR = src/translation
+TRANSLATIONS = src/translation/translation_de_DE.ts \
+    src/translation/translation_fr_FR.ts \
+    src/translation/translation_ko_KR.ts \
+    src/translation/translation_pt_PT.ts \
+    src/translation/translation_pt_BR.ts \
+    src/translation/translation_es_ES.ts \
+    src/translation/translation_nl_NL.ts \
+    src/translation/translation_pl_PL.ts \
+    src/translation/translation_sk_SK.ts \
+    src/translation/translation_it_IT.ts \
+    src/translation/translation_sv_SE.ts \
+    src/translation/translation_zh_CN.ts
 
 INCLUDEPATH += src
 
@@ -82,49 +92,65 @@ win32 {
             advapi32.lib \
             winmm.lib \
             ws2_32.lib
+        greaterThan(QT_MAJOR_VERSION, 5) {
+            # Qt5 had a special qtmain library which took care of forwarding the MSVC default WinMain() entrypoint to
+            # the platform-agnostic main().
+            # Qt6 is still supposed to have that lib under the new name QtEntryPoint. As it does not seem
+            # to be effective when building with qmake, we are rather instructing MSVC to use the platform-agnostic
+            # main() entrypoint directly:
+            QMAKE_LFLAGS += /subsystem:windows /ENTRY:mainCRTStartup
+        }
     }
 
-    contains(CONFIG, "jackonwindows") {
-        message(Using JACK.)
-        contains(QT_ARCH, "i386") {
-            exists("C:/Program Files (x86)") {
-                message("Cross compilation build")
-                programfilesdir = "C:/Program Files (x86)"
-            } else {
-                message("Native i386 build")
-                programfilesdir = "C:/Program Files"
-            }
-            libjackname = "libjack.lib"
-        } else {
-            message("Native x86_64 build")
-            programfilesdir = "C:/Program Files"
-            libjackname = "libjack64.lib"
-        }
-        !exists("$${programfilesdir}/JACK2/include/jack/jack.h") {
-            message("Warning: jack.h was not found in the expected location ($${programfilesdir}). Ensure that the right JACK2 variant is installed (32bit vs. 64bit).")
-        }
-
-        HEADERS += linux/sound.h
-        SOURCES += linux/sound.cpp
-        DEFINES += WITH_JACK
-        DEFINES += JACK_REPLACES_ASIO
-        DEFINES += _STDINT_H # supposed to solve compilation error in systemdeps.h
-        INCLUDEPATH += "$${programfilesdir}/JACK2/include"
-        LIBS += "$${programfilesdir}/JACK2/lib/$${libjackname}"
+    contains(CONFIG, "serveronly") {
+        message(Restricting build to server-only due to CONFIG+=serveronly.)
+        DEFINES += SERVER_ONLY
     } else {
-        message(Using ASIO.)
-        message(Please review the ASIO SDK licence.)
+        contains(CONFIG, "jackonwindows") {
+            message(Using JACK.)
+            contains(QT_ARCH, "i386") {
+                exists("C:/Program Files (x86)") {
+                    message("Cross compilation build")
+                    programfilesdir = "C:/Program Files (x86)"
+                } else {
+                    message("Native i386 build")
+                    programfilesdir = "C:/Program Files"
+                }
+                libjackname = "libjack.lib"
+            } else {
+                message("Native x86_64 build")
+                programfilesdir = "C:/Program Files"
+                libjackname = "libjack64.lib"
+            }
+            !exists("$${programfilesdir}/JACK2/include/jack/jack.h") {
+                error("Error: jack.h was not found in the expected location ($${programfilesdir}). Ensure that the right JACK2 variant is installed (32bit vs. 64bit).")
+            }
 
-        # Important: Keep those ASIO includes local to this build target in
-        # order to avoid poisoning other builds license-wise.
-        HEADERS += windows/sound.h
-        SOURCES += windows/sound.cpp \
-            windows/ASIOSDK2/common/asio.cpp \
-            windows/ASIOSDK2/host/asiodrivers.cpp \
-            windows/ASIOSDK2/host/pc/asiolist.cpp
-        INCLUDEPATH += windows/ASIOSDK2/common \
-            windows/ASIOSDK2/host \
-            windows/ASIOSDK2/host/pc
+            HEADERS += src/sound/jack/sound.h
+            SOURCES += src/sound/jack/sound.cpp
+            DEFINES += WITH_JACK
+            DEFINES += JACK_ON_WINDOWS
+            DEFINES += _STDINT_H # supposed to solve compilation error in systemdeps.h
+            INCLUDEPATH += "$${programfilesdir}/JACK2/include"
+            LIBS += "$${programfilesdir}/JACK2/lib/$${libjackname}"
+        } else {
+            message(Using ASIO.)
+            message(Please review the ASIO SDK licence.)
+
+            !exists(libs/ASIOSDK2/common) {
+                error("Error: ASIOSDK2 must be placed in Jamulus \\libs folder such that e.g. \\libs\ASIOSDK2\common exists.")
+            }
+            # Important: Keep those ASIO includes local to this build target in
+            # order to avoid poisoning other builds license-wise.
+            HEADERS += src/sound/asio/sound.h
+            SOURCES += src/sound/asio/sound.cpp \
+                libs/ASIOSDK2/common/asio.cpp \
+                libs/ASIOSDK2/host/asiodrivers.cpp \
+                libs/ASIOSDK2/host/pc/asiolist.cpp
+            INCLUDEPATH += libs/ASIOSDK2/common \
+                libs/ASIOSDK2/host \
+                libs/ASIOSDK2/host/pc
+        }
     }
 
 } else:macx {
@@ -140,20 +166,19 @@ win32 {
         RC_FILE = mac/mainicon.icns
     }
 
-    QT += macextras
-    HEADERS += mac/activity.h
-    OBJECTIVE_SOURCES += mac/activity.mm
+    HEADERS += mac/activity.h mac/badgelabel.h
+    OBJECTIVE_SOURCES += mac/activity.mm mac/badgelabel.mm
     CONFIG += x86
     QMAKE_TARGET_BUNDLE_PREFIX = io.jamulus
 
-    OSX_ENTITLEMENTS.files = Jamulus.entitlements
+    OSX_ENTITLEMENTS.files = mac/Jamulus.entitlements
     OSX_ENTITLEMENTS.path = Contents/Resources
     QMAKE_BUNDLE_DATA += OSX_ENTITLEMENTS
 
     macx-xcode {
         QMAKE_INFO_PLIST = mac/Info-xcode.plist
         XCODE_ENTITLEMENTS.name = CODE_SIGN_ENTITLEMENTS
-        XCODE_ENTITLEMENTS.value = Jamulus.entitlements
+        XCODE_ENTITLEMENTS.value = mac/Jamulus.entitlements
         QMAKE_MAC_XCODE_SETTINGS += XCODE_ENTITLEMENTS
         MACOSX_BUNDLE_ICON.path = Contents/Resources
         QMAKE_BUNDLE_DATA += MACOSX_BUNDLE_ICON
@@ -171,34 +196,34 @@ win32 {
         -framework CoreMIDI \
         -framework AudioToolbox \
         -framework AudioUnit \
-        -framework Foundation
+        -framework Foundation \
+        -framework AppKit
 
     contains(CONFIG, "jackonmac") {
         message(Using JACK.)
         !exists(/usr/include/jack/jack.h) {
             !exists(/usr/local/include/jack/jack.h) {
-                 message("Warning: jack.h was not found at the usual place, maybe jack is not installed")
+                 error("Error: jack.h was not found at the usual place, maybe JACK is not installed")
             }
         }
-        HEADERS += linux/sound.h
-        SOURCES += linux/sound.cpp
+        HEADERS += src/sound/jack/sound.h
+        SOURCES += src/sound/jack/sound.cpp
         DEFINES += WITH_JACK
         DEFINES += JACK_REPLACES_COREAUDIO
         INCLUDEPATH += /usr/local/include
         LIBS += /usr/local/lib/libjack.dylib
     } else {
         message(Using CoreAudio.)
-        HEADERS += mac/sound.h
-        SOURCES += mac/sound.cpp
+        HEADERS += src/sound/coreaudio-mac/sound.h
+        SOURCES += src/sound/coreaudio-mac/sound.cpp
     }
 
 } else:ios {
     QMAKE_INFO_PLIST = ios/Info.plist
-    QT += macextras
     OBJECTIVE_SOURCES += ios/ios_app_delegate.mm
     HEADERS += ios/ios_app_delegate.h
-    HEADERS += ios/sound.h
-    OBJECTIVE_SOURCES += ios/sound.mm
+    HEADERS += src/sound/coreaudio-ios/sound.h
+    OBJECTIVE_SOURCES += src/sound/coreaudio-ios/sound.mm
     QMAKE_TARGET_BUNDLE_PREFIX = io.jamulus
     LIBS += -framework AVFoundation \
         -framework AudioToolbox
@@ -208,8 +233,8 @@ win32 {
     ANDROID_VERSION_CODE = $$system(git log --oneline | wc -l)
     message("Setting ANDROID_VERSION_NAME=$${ANDROID_VERSION_NAME} ANDROID_VERSION_CODE=$${ANDROID_VERSION_CODE}")
 
-    # we want to compile with C++14
-    CONFIG += c++14
+    # liboboe requires C++17 for std::timed_mutex
+    CONFIG += c++17
 
     QT += androidextras
 
@@ -219,9 +244,9 @@ win32 {
     target.path = /tmp/your_executable # path on device
     INSTALLS += target
 
-    HEADERS += android/sound.h
+    HEADERS += src/sound/oboe/sound.h
 
-    SOURCES += android/sound.cpp \
+    SOURCES += src/sound/oboe/sound.cpp \
         android/androiddebug.cpp
 
     LIBS += -lOpenSLES
@@ -230,107 +255,8 @@ win32 {
 
     # if compiling for android you need to use Oboe library which is included as a git submodule
     # make sure you git pull with submodules to pull the latest Oboe library
-    OBOE_SOURCES = libs/oboe/src/aaudio/AAudioLoader.cpp \
-        libs/oboe/src/aaudio/AudioStreamAAudio.cpp \
-        libs/oboe/src/common/AudioSourceCaller.cpp \
-        libs/oboe/src/common/AudioStream.cpp \
-        libs/oboe/src/common/AudioStreamBuilder.cpp \
-        libs/oboe/src/common/DataConversionFlowGraph.cpp \
-        libs/oboe/src/common/FilterAudioStream.cpp \
-        libs/oboe/src/common/FixedBlockAdapter.cpp \
-        libs/oboe/src/common/FixedBlockReader.cpp \
-        libs/oboe/src/common/FixedBlockWriter.cpp \
-        libs/oboe/src/common/LatencyTuner.cpp \
-        libs/oboe/src/common/QuirksManager.cpp \
-        libs/oboe/src/common/SourceFloatCaller.cpp \
-        libs/oboe/src/common/SourceI16Caller.cpp \
-        libs/oboe/src/common/StabilizedCallback.cpp \
-        libs/oboe/src/common/Trace.cpp \
-        libs/oboe/src/common/Utilities.cpp \
-        libs/oboe/src/common/Version.cpp \
-        libs/oboe/src/fifo/FifoBuffer.cpp \
-        libs/oboe/src/fifo/FifoController.cpp \
-        libs/oboe/src/fifo/FifoControllerBase.cpp \
-        libs/oboe/src/fifo/FifoControllerIndirect.cpp \
-        libs/oboe/src/flowgraph/ChannelCountConverter.cpp \
-        libs/oboe/src/flowgraph/ClipToRange.cpp \
-        libs/oboe/src/flowgraph/FlowGraphNode.cpp \
-        libs/oboe/src/flowgraph/ManyToMultiConverter.cpp \
-        libs/oboe/src/flowgraph/MonoToMultiConverter.cpp \
-        libs/oboe/src/flowgraph/MultiToMonoConverter.cpp \
-        libs/oboe/src/flowgraph/RampLinear.cpp \
-        libs/oboe/src/flowgraph/SampleRateConverter.cpp \
-        libs/oboe/src/flowgraph/SinkFloat.cpp \
-        libs/oboe/src/flowgraph/SinkI16.cpp \
-        libs/oboe/src/flowgraph/SinkI24.cpp \
-        libs/oboe/src/flowgraph/SourceFloat.cpp \
-        libs/oboe/src/flowgraph/SourceI16.cpp \
-        libs/oboe/src/flowgraph/SourceI24.cpp \
-        libs/oboe/src/flowgraph/resampler/IntegerRatio.cpp \
-        libs/oboe/src/flowgraph/resampler/LinearResampler.cpp \
-        libs/oboe/src/flowgraph/resampler/MultiChannelResampler.cpp \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResampler.cpp \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResamplerMono.cpp \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResamplerStereo.cpp \
-        libs/oboe/src/flowgraph/resampler/SincResampler.cpp \
-        libs/oboe/src/flowgraph/resampler/SincResamplerStereo.cpp \
-        libs/oboe/src/opensles/AudioInputStreamOpenSLES.cpp \
-        libs/oboe/src/opensles/AudioOutputStreamOpenSLES.cpp \
-        libs/oboe/src/opensles/AudioStreamBuffered.cpp \
-        libs/oboe/src/opensles/AudioStreamOpenSLES.cpp \
-        libs/oboe/src/opensles/EngineOpenSLES.cpp \
-        libs/oboe/src/opensles/OpenSLESUtilities.cpp \
-        libs/oboe/src/opensles/OutputMixerOpenSLES.cpp
-
-    OBOE_HEADERS = libs/oboe/src/aaudio/AAudioLoader.h \
-        libs/oboe/src/aaudio/AudioStreamAAudio.h \
-        libs/oboe/src/common/AudioClock.h \
-        libs/oboe/src/common/AudioSourceCaller.h \
-        libs/oboe/src/common/DataConversionFlowGraph.h \
-        libs/oboe/src/common/FilterAudioStream.h \
-        libs/oboe/src/common/FixedBlockAdapter.h \
-        libs/oboe/src/common/FixedBlockReader.h \
-        libs/oboe/src/common/FixedBlockWriter.h \
-        libs/oboe/src/common/MonotonicCounter.h \
-        libs/oboe/src/common/OboeDebug.h \
-        libs/oboe/src/common/QuirksManager.h \
-        libs/oboe/src/common/SourceFloatCaller.h \
-        libs/oboe/src/common/SourceI16Caller.h \
-        libs/oboe/src/common/Trace.h \
-        libs/oboe/src/fifo/FifoBuffer.h \
-        libs/oboe/src/fifo/FifoController.h \
-        libs/oboe/src/fifo/FifoControllerBase.h \
-        libs/oboe/src/fifo/FifoControllerIndirect.h \
-        libs/oboe/src/flowgraph/ChannelCountConverter.h \
-        libs/oboe/src/flowgraph/ClipToRange.h \
-        libs/oboe/src/flowgraph/FlowGraphNode.h \
-        libs/oboe/src/flowgraph/ManyToMultiConverter.h \
-        libs/oboe/src/flowgraph/MonoToMultiConverter.h \
-        libs/oboe/src/flowgraph/MultiToMonoConverter.h \
-        libs/oboe/src/flowgraph/RampLinear.h \
-        libs/oboe/src/flowgraph/SampleRateConverter.h \
-        libs/oboe/src/flowgraph/SinkFloat.h \
-        libs/oboe/src/flowgraph/SinkI16.h \
-        libs/oboe/src/flowgraph/SinkI24.h \
-        libs/oboe/src/flowgraph/SourceFloat.h \
-        libs/oboe/src/flowgraph/SourceI16.h \
-        libs/oboe/src/flowgraph/SourceI24.h \
-        libs/oboe/src/flowgraph/resampler/HyperbolicCosineWindow.h \
-        libs/oboe/src/flowgraph/resampler/IntegerRatio.h \
-        libs/oboe/src/flowgraph/resampler/LinearResampler.h \
-        libs/oboe/src/flowgraph/resampler/MultiChannelResampler.h \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResampler.h \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResamplerMono.h \
-        libs/oboe/src/flowgraph/resampler/PolyphaseResamplerStereo.h \
-        libs/oboe/src/flowgraph/resampler/SincResampler.h \
-        libs/oboe/src/flowgraph/resampler/SincResamplerStereo.h \
-        libs/oboe/src/opensles/AudioInputStreamOpenSLES.h \
-        libs/oboe/src/opensles/AudioOutputStreamOpenSLES.h \
-        libs/oboe/src/opensles/AudioStreamBuffered.h \
-        libs/oboe/src/opensles/AudioStreamOpenSLES.h \
-        libs/oboe/src/opensles/EngineOpenSLES.h \
-        libs/oboe/src/opensles/OpenSLESUtilities.h \
-        libs/oboe/src/opensles/OutputMixerOpenSLES.h
+    OBOE_SOURCES = $$files(libs/oboe/src/*.cpp, true)
+    OBOE_HEADERS = $$files(libs/oboe/src/*.h, true)
 
     INCLUDEPATH_OBOE = libs/oboe/include/ \
         libs/oboe/src/
@@ -340,10 +266,10 @@ win32 {
         libs/oboe/LICENSE \
         libs/oboe/README
 
-        INCLUDEPATH += $$INCLUDEPATH_OBOE
-        HEADERS += $$OBOE_HEADERS
-        SOURCES += $$OBOE_SOURCES
-        DISTFILES += $$DISTFILES_OBOE
+    INCLUDEPATH += $$INCLUDEPATH_OBOE
+    HEADERS += $$OBOE_HEADERS
+    SOURCES += $$OBOE_SOURCES
+    DISTFILES += $$DISTFILES_OBOE
 } else:unix {
     # we want to compile with C++11
     CONFIG += c++11
@@ -354,9 +280,6 @@ win32 {
     # unnecessarily without this workaround (#741):
     QMAKE_LFLAGS += -Wl,--as-needed
 
-    HEADERS += linux/sound.h
-    SOURCES += linux/sound.cpp
-
     # we assume to have lrintf() one moderately modern linux distributions
     # would be better to have that tested, though
     DEFINES += HAVE_LRINTF
@@ -364,15 +287,18 @@ win32 {
     # we assume that stdint.h is always present in a Linux system
     DEFINES += HAVE_STDINT_H
 
-    # only include jack support if CONFIG nosound is not set
-    contains(CONFIG, "nosound") {
-        message(Restricting build to server-only due to CONFIG+=nosound.)
+    # only include JACK support if CONFIG serveronly is not set
+    contains(CONFIG, "serveronly") {
+        message(Restricting build to server-only due to CONFIG+=serveronly.)
         DEFINES += SERVER_ONLY
     } else {
-        message(Jack Audio Interface Enabled.)
+        message(JACK Audio Interface Enabled.)
+
+        HEADERS += src/sound/jack/sound.h
+        SOURCES += src/sound/jack/sound.cpp
 
         contains(CONFIG, "raspijamulus") {
-            message(Using Jack Audio in raspijamulus.sh mode.)
+            message(Using JACK Audio in raspijamulus.sh mode.)
             LIBS += -ljack
         } else {
             CONFIG += link_pkgconfig
@@ -431,17 +357,18 @@ win32 {
 RCC_DIR = src/res
 RESOURCES += src/resources.qrc
 
-FORMS_GUI = src/clientdlgbase.ui \
-    src/serverdlgbase.ui \
-    src/clientsettingsdlgbase.ui \
-    src/chatdlgbase.ui \
-    src/connectdlgbase.ui \
-    src/aboutdlgbase.ui
+FORMS_GUI = src/aboutdlgbase.ui \
+    src/serverdlgbase.ui
+
+!contains(CONFIG, "serveronly") {
+    FORMS_GUI += src/clientdlgbase.ui \
+        src/clientsettingsdlgbase.ui \
+        src/chatdlgbase.ui \
+        src/connectdlgbase.ui
+}
 
 HEADERS += src/buffer.h \
     src/channel.h \
-    src/client.h \
-    src/clientrpc.h \
     src/global.h \
     src/protocol.h \
     src/recorder/jamcontroller.h \
@@ -449,27 +376,32 @@ HEADERS += src/buffer.h \
     src/server.h \
     src/serverlist.h \
     src/serverlogging.h \
-    src/serverrpc.h \
-    src/rpcserver.h \
     src/settings.h \
     src/socket.h \
-    src/soundbase.h \
-    src/testbench.h \
     src/util.h \
     src/recorder/jamrecorder.h \
     src/recorder/creaperproject.h \
     src/recorder/cwavestream.h \
     src/signalhandler.h
 
-HEADERS_GUI = src/audiomixerboard.h \
-    src/chatdlg.h \
-    src/clientsettingsdlg.h \
-    src/connectdlg.h \
-    src/clientdlg.h \
-    src/serverdlg.h \
-    src/levelmeter.h \
-    src/analyzerconsole.h \
-    src/multicolorled.h
+!contains(CONFIG, "serveronly") {
+    HEADERS += src/client.h \
+        src/sound/soundbase.h \
+        src/testbench.h
+}
+
+HEADERS_GUI = src/serverdlg.h
+
+!contains(CONFIG, "serveronly") {
+    HEADERS_GUI += src/audiomixerboard.h \
+        src/chatdlg.h \
+        src/clientsettingsdlg.h \
+        src/connectdlg.h \
+        src/clientdlg.h \
+        src/levelmeter.h \
+        src/analyzerconsole.h \
+        src/multicolorled.h
+}
 
 HEADERS_OPUS = libs/opus/celt/arch.h \
     libs/opus/celt/bands.h \
@@ -545,34 +477,37 @@ HEADERS_OPUS_X86 = libs/opus/celt/x86/celt_lpc_sse.h \
 
 SOURCES += src/buffer.cpp \
     src/channel.cpp \
-    src/client.cpp \
-    src/clientrpc.cpp \
     src/main.cpp \
     src/protocol.cpp \
     src/recorder/jamcontroller.cpp \
     src/server.cpp \
     src/serverlist.cpp \
     src/serverlogging.cpp \
-    src/serverrpc.cpp \
-    src/rpcserver.cpp \
     src/settings.cpp \
     src/signalhandler.cpp \
     src/socket.cpp \
-    src/soundbase.cpp \
     src/util.cpp \
     src/recorder/jamrecorder.cpp \
     src/recorder/creaperproject.cpp \
     src/recorder/cwavestream.cpp
 
-SOURCES_GUI = src/audiomixerboard.cpp \
-    src/chatdlg.cpp \
-    src/clientsettingsdlg.cpp \
-    src/connectdlg.cpp \
-    src/clientdlg.cpp \
-    src/serverdlg.cpp \
-    src/multicolorled.cpp \
-    src/levelmeter.cpp \
-    src/analyzerconsole.cpp
+!contains(CONFIG, "serveronly") {
+    SOURCES += src/client.cpp \
+        src/sound/soundbase.cpp \
+}
+
+SOURCES_GUI = src/serverdlg.cpp
+
+!contains(CONFIG, "serveronly") {
+    SOURCES_GUI += src/audiomixerboard.cpp \
+        src/chatdlg.cpp \
+        src/clientsettingsdlg.cpp \
+        src/connectdlg.cpp \
+        src/clientdlg.cpp \
+        src/multicolorled.cpp \
+        src/levelmeter.cpp \
+        src/analyzerconsole.cpp
+}
 
 SOURCES_OPUS = libs/opus/celt/bands.c \
     libs/opus/celt/celt.c \
@@ -753,17 +688,18 @@ DISTFILES += ChangeLog \
     distributions/jamulus.png \
     distributions/jamulus.svg \
     distributions/jamulus-server.svg \
-    src/res/translation/translation_de_DE.qm \
-    src/res/translation/translation_fr_FR.qm \
-    src/res/translation/translation_pt_PT.qm \
-    src/res/translation/translation_pt_BR.qm \
-    src/res/translation/translation_es_ES.qm \
-    src/res/translation/translation_nl_NL.qm \
-    src/res/translation/translation_pl_PL.qm \
-    src/res/translation/translation_it_IT.qm \
-    src/res/translation/translation_sv_SE.qm \
-    src/res/translation/translation_sk_SK.qm \
-    src/res/translation/translation_zh_CN.qm \
+    src/translation/translation_de_DE.qm \
+    src/translation/translation_fr_FR.qm \
+    src/translation/translation_ko_KR.qm \
+    src/translation/translation_pt_PT.qm \
+    src/translation/translation_pt_BR.qm \
+    src/translation/translation_es_ES.qm \
+    src/translation/translation_nl_NL.qm \
+    src/translation/translation_pl_PL.qm \
+    src/translation/translation_it_IT.qm \
+    src/translation/translation_sv_SE.qm \
+    src/translation/translation_sk_SK.qm \
+    src/translation/translation_zh_CN.qm \
     src/res/CLEDBlack.png \
     src/res/CLEDBlackSmall.png \
     src/res/CLEDDisabledSmall.png \
@@ -1123,6 +1059,24 @@ contains(CONFIG, "headless") {
     FORMS += $$FORMS_GUI
 }
 
+contains(CONFIG, "nojsonrpc") {
+    message(JSON-RPC support excluded from build.)
+    DEFINES += NO_JSON_RPC
+} else {
+    HEADERS += \
+        src/rpcserver.h \
+        src/serverrpc.h
+    SOURCES += \
+        src/rpcserver.cpp \
+        src/serverrpc.cpp
+    contains(CONFIG, "serveronly") {
+        message("server only, skipping client rpc")
+    } else {
+        HEADERS += src/clientrpc.h
+        SOURCES += src/clientrpc.cpp
+    }
+}
+
 # use external OPUS library if requested
 contains(CONFIG, "opus_shared_lib") {
     message(OPUS codec is used from a shared library.)
@@ -1148,7 +1102,7 @@ contains(CONFIG, "opus_shared_lib") {
         msvc {
             # According to opus/win32/config.h, "no special compiler
             # flags necessary" when using msvc.  It always supports
-            # SSE intrinsics, but doesn't auto-vectorize.
+            # SSE intrinsics, but does not auto-vectorize.
             SOURCES += $$SOURCES_OPUS_ARCH
         } else {
             # Arch-specific files need special compiler flags, but we
@@ -1190,6 +1144,6 @@ contains(CONFIG, "disable_version_check") {
 # be sure to update .github/workflows/coding-style-check.yml and .clang-format-ignore as well.
 CLANG_FORMAT_SOURCES = $$files(*.cpp, true) $$files(*.mm, true) $$files(*.h, true)
 CLANG_FORMAT_SOURCES = $$find(CLANG_FORMAT_SOURCES, ^\(android|ios|mac|linux|src|windows\)/)
-CLANG_FORMAT_SOURCES ~= s!^\(windows/\(nsProcess|ASIOSDK2\)/|src/res/qrc_resources\.cpp\)\S*$!!g
+CLANG_FORMAT_SOURCES ~= s!^\(windows/nsProcess/|libs/ASIOSDK2/|src/res/qrc_resources\.cpp\)\S*$!!g
 clang_format.commands = 'clang-format -i $$CLANG_FORMAT_SOURCES'
 QMAKE_EXTRA_TARGETS += clang_format
