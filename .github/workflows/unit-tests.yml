@@ -68,9 +68,9 @@ jobs:
           # Same Qt6/ubuntu-24.04 toolchain as the plain Linux Qt6 job above,
           # but compiled with GCC's sanitizers to catch memory/UB issues a
           # plain build wouldn't. The flags are appended on the qmake command
-          # line (qmake_extra_args, used by the Build unit tests (Unix) step
-          # below) rather than edited into test.pro, so no other job is
-          # affected.
+          # line (qmake_extra_args, read by the Build unit tests step below
+          # via QMAKE_EXTRA_ARGS) rather than edited into test.pro, so no
+          # other job is affected.
           - name: Linux (Qt 6, ASan/UBSan)
             id: linux-qt6-asan
             runs_on: ubuntu-24.04
@@ -167,91 +167,26 @@ jobs:
           # ("$QtInstallPath\$QtCompile\bin" with QtCompile64=msvc2022_64).
           Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
 
-      - name: Build unit tests (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir build-test
-          cd build-test
-          ${{ matrix.config.qmake }} ../src/test/test.pro ${{ matrix.config.qmake_extra_args }}
-          make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
-
-      # ilammy/msvc-dev-cmd (its latest release and even its unreleased
-      # default branch) still targets Node.js 20, which GitHub Actions now
-      # runs forced onto Node 24 with a deprecation warning; there's no
-      # node24 release to bump to. Set up the MSVC environment directly
-      # instead, replicating what that action actually does under the
-      # hood (proven to work on this exact runner): call vcvarsall.bat in
-      # a plain "cmd /c" subshell, diff its "set" output against a
-      # before-snapshot to find just the variables it changed, and apply
-      # those to this step's own environment. This is more robust than
-      # simply "call"-ing vcvarsall.bat inline, which left
-      # VCToolsInstallDir unset here even though vcvarsall.bat reported
-      # success -- some part of its own environment-propagation logic
-      # doesn't survive being invoked from within a nested CALL.
-      - name: Build unit tests (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $vcvarsall = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
-
-          $before = cmd /c "set"
-          $after  = cmd /c "call `"$vcvarsall`" x64 >nul && set"
-
-          $beforeMap = @{}
-          foreach ($line in $before) {
-            if ($line -match '^([^=]+)=(.*)$') { $beforeMap[$Matches[1]] = $Matches[2] }
-          }
-          foreach ($line in $after) {
-            if ($line -match '^([^=]+)=(.*)$') {
-              $name = $Matches[1]; $value = $Matches[2]
-              if ($beforeMap[$name] -ne $value) {
-                [System.Environment]::SetEnvironmentVariable($name, $value)
-              }
-            }
-          }
-
-          Write-Host "VCToolsInstallDir=$env:VCToolsInstallDir"
-          where.exe cl
-
-          mkdir build-test
-          cd build-test
-          qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
-          nmake
-
-      # Output is captured to a file and grepped for the QtTest "Totals:"
-      # summary line, so the job fails if the suite ever exits 0 without
-      # actually having run its tests (rather than trusting the exit code
-      # alone). QtTest supports multiple "-o file,format" loggers in the same
-      # run, so the existing plain text logger (still what the Totals: gate
-      # greps) gets a second junit-flavoured one alongside it for the
-      # "Summarize test results" step below. The format name QtTest uses for
-      # that flavour changed between Qt 5 and Qt 6 (5.15 calls it
-      # "xunitxml", 6.x renamed it "junitxml") -- rather than hardcode that
-      # by matrix.config.qmake, ask the binary itself via -help so this
-      # keeps working if the name changes again.
-      - name: Run unit tests (Unix)
-        if: runner.os != 'Windows'
+      # Both the build and the run step below are thin wrappers around one
+      # cross-platform driver script (.github/scripts/run-unit-tests.py,
+      # stdlib only) instead of separate Unix/Windows steps -- see that
+      # script's own docstring for why the MSVC environment bootstrap that
+      # used to be its own workflow step is folded into it too.
+      - name: Build unit tests
         env:
-          # No-ops on the plain (non-sanitized) builds; on the ASan/UBSan job
-          # this makes any sanitizer report abort the process immediately
-          # instead of just printing a diagnostic and exiting 0, so the
-          # Totals: gate below can't be fooled by a report that arrives after
-          # all tests otherwise "pass".
+          QMAKE_BIN: ${{ matrix.config.qmake }}
+          QMAKE_EXTRA_ARGS: ${{ matrix.config.qmake_extra_args }}
+        run: python3 .github/scripts/run-unit-tests.py build
+
+      # No-op env vars on the plain (non-sanitized) builds; on the ASan/UBSan
+      # job these make any sanitizer report abort the process immediately
+      # instead of just printing a diagnostic and exiting 0, so a sanitizer
+      # finding can't slip through as a "passing" run.
+      - name: Run unit tests
+        env:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          JUNIT_FORMAT=junitxml
-          ./build-test/jamulus-test -help 2>&1 | grep -q junitxml || JUNIT_FORMAT=xunitxml
-          echo "Using QtTest JUnit logger format: $JUNIT_FORMAT"
-
-          # "-o -,txt" keeps the plain text report on stdout (so it still
-          # reaches the console and, via tee, test-output.txt for the grep
-          # below) alongside the new junit logger writing straight to its own
-          # file; passing any -o at all replaces QtTest's implicit default
-          # logger, so the stdout one has to be requested explicitly here.
-          ./build-test/jamulus-test -o -,txt -o test-results.xml,$JUNIT_FORMAT | tee test-output.txt
-          grep -q 'Totals: 46 passed' test-output.txt
+        run: python3 .github/scripts/run-unit-tests.py run
 
       # gcda/gcno files land next to the .o files inside build-test/ (test.pro
       # doesn't set OBJECTS_DIR, so out-of-tree still means "flat inside the
@@ -286,39 +221,13 @@ jobs:
           retention-days: 31
           if-no-files-found: error
 
-      # The test suite's own stdout came back completely empty here (0
-      # bytes) no matter how it was captured -- cmd redirection, pwsh
-      # Tee-Object, pwsh *> -- even though the exe demonstrably ran (exit
-      # code 0, ~50ms). Rather than continue to chase whichever console/
-      # pipe layer is eating the writes on this runner, sidestep the
-      # process's stdout stream entirely: QTest's own "-o file,txt" option
-      # makes it write its plain-text report straight to a file via Qt's
-      # file I/O, independent of the console/output-handle machinery.
-      - name: Run unit tests (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          set JUNIT_FORMAT=junitxml
-          build-test\jamulus-test.exe -help | findstr /C:"junitxml" >nul
-          if errorlevel 1 set JUNIT_FORMAT=xunitxml
-          echo Using QtTest JUnit logger format: %JUNIT_FORMAT%
-
-          build-test\jamulus-test.exe -o test-output.txt,txt -o test-results.xml,%JUNIT_FORMAT%
-          set EXE_EXITCODE=%ERRORLEVEL%
-          type test-output.txt
-          findstr /C:"Totals: 46 passed" test-output.txt > nul
-          if errorlevel 1 (
-            echo ##[error]Expected 'Totals: 46 passed' not found in captured test output
-            exit /b 1
-          )
-          if not "%EXE_EXITCODE%"=="0" (
-            echo ##[error]jamulus-test.exe exited with code %EXE_EXITCODE%
-            exit /b %EXE_EXITCODE%
-          )
-
       # Zero-permission route: a python (stdlib only, no third party action)
-      # step parses the junit xml written by both Run unit tests steps above
-      # and appends a compact pass/fail table to the job summary. The
+      # step parses the junit xml the Run unit tests step above wrote and
+      # appends a compact pass/fail table to the job summary. This is ALSO
+      # the job's real test-count gate now (see the script's own docstring):
+      # it fails unless the suite reported at least one test and zero
+      # failures/errors, instead of the previous hardcoded "Totals: N
+      # passed" grep, so the suite is free to grow without touching CI. The
       # alternative -- dorny/test-reporter or mikepenz/action-junit-report,
       # which render much richer per-test annotations/check runs -- needs
       # `checks: write` (dorny) or `pull-requests: write`/`checks: write`
@@ -327,55 +236,14 @@ jobs:
       # trusting a third-party action with it) was judged more than a test
       # summary is worth, especially for a spike. `if: always()` so this
       # (and the upload step below) still run -- and show what did get as
-      # far as being recorded -- even if the Totals: gate above failed.
-      - name: Summarize test results
+      # far as being recorded, and still gate -- even if the Run unit tests
+      # step above failed outright (e.g. a crash before any test-results.xml
+      # could be written).
+      - name: Summarize and gate on test results
         if: always()
-        shell: python
         env:
           JOB_NAME: ${{ matrix.config.name }}
-        run: |
-          import os
-          import xml.etree.ElementTree as ET
-
-          path = "test-results.xml"
-          job_name = os.environ.get ( "JOB_NAME", "unit tests" )
-
-          with open ( os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8" ) as summary:
-              summary.write ( "### JUnit results: {}\n\n".format ( job_name ) )
-
-              if not os.path.exists ( path ):
-                  summary.write ( "_No test-results.xml was produced (the build or test run likely failed before it could be written)._\n\n" )
-              else:
-                  root = ET.parse ( path ).getroot()
-                  suites = [ root ] if root.tag == "testsuite" else list ( root.findall ( "testsuite" ) )
-
-                  summary.write ( "| Suite | Tests | Passed | Failed | Skipped | Time (s) |\n" )
-                  summary.write ( "|---|---|---|---|---|---|\n" )
-
-                  failures = []
-                  for suite in suites:
-                      tests   = int ( suite.get ( "tests", 0 ) )
-                      failed  = int ( suite.get ( "failures", 0 ) ) + int ( suite.get ( "errors", 0 ) )
-                      skipped = int ( suite.get ( "skipped", 0 ) )
-                      passed  = tests - failed - skipped
-                      status  = "PASS" if failed == 0 else "FAIL"
-                      summary.write ( "| {} {} | {} | {} | {} | {} | {} |\n".format (
-                          status, suite.get ( "name" ), tests, passed, failed, skipped, suite.get ( "time", "?" ) ) )
-
-                      for testcase in suite.findall ( "testcase" ):
-                          node = testcase.find ( "failure" )
-                          if node is None:
-                              node = testcase.find ( "error" )
-                          if node is not None:
-                              failures.append ( ( testcase.get ( "name" ), ( node.get ( "message" ) or "" ).strip() ) )
-
-                  if failures:
-                      summary.write ( "\n<details><summary>Failed tests</summary>\n\n" )
-                      for name, message in failures:
-                          summary.write ( "- `{}`: {}\n".format ( name, message ) )
-                      summary.write ( "\n</details>\n" )
-
-                  summary.write ( "\n" )
+        run: python3 .github/scripts/summarize-test-results.py
 
       - name: Upload JUnit XML
         if: always()
