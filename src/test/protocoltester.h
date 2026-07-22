@@ -11,129 +11,18 @@
 #pragma once
 
 #include <QtTest>
+#include <functional>
 #include "protocol.h"
-
-/* Protocol test helpers ******************************************************/
-
-// Runs Action on a fresh CProtocol instance and returns the single raw frame
-// it hands to MessReadyForSending. "Fresh" matters: the frame counter (cnt)
-// starts at 0 and increments per message sent on an instance, so this is what
-// makes the result byte-for-byte deterministic (relied on by the golden frame
-// tests in tst_protocol.cpp).
-template<typename ActionT>
-inline CVector<uint8_t> SendAndCaptureFrame ( ActionT Action )
-{
-    CProtocol        Sender;
-    CVector<uint8_t> vecbyFrame;
-
-    QObject::connect ( &Sender, &CProtocol::MessReadyForSending, [&vecbyFrame] ( CVector<uint8_t> vecMessage ) { vecbyFrame = vecMessage; } );
-
-    Action ( Sender );
-
-    return vecbyFrame;
-}
-
-// keeps vecbyFrame's TAG/CNT bytes but overwrites its ID and body (rewriting
-// the length field and recomputing the CRC so the result is still a well
-// formed *frame* even though the *body* deliberately might not be) -- for
-// testing how CProtocol::ParseMessageBody() reacts to malformed bodies, as
-// opposed to malformed frames (see RejectInvalidMessageBody()/
-// IgnoreAcknWithEmptyBody() in tst_protocol.cpp)
-inline void ReplaceIdAndBody ( CVector<uint8_t>& vecbyFrame, const int iID, const CVector<uint8_t>& vecbyNewBody )
-{
-    const int        iBodyLen = vecbyNewBody.Size();
-    CVector<uint8_t> vecbyNewFrame ( MESS_LEN_WITHOUT_DATA_BYTE + iBodyLen );
-
-    vecbyNewFrame[0] = vecbyFrame[0]; // TAG, unchanged
-    vecbyNewFrame[1] = vecbyFrame[1];
-    vecbyNewFrame[2] = static_cast<uint8_t> ( iID & 0xFF ); // ID, overwritten
-    vecbyNewFrame[3] = static_cast<uint8_t> ( ( iID >> 8 ) & 0xFF );
-    vecbyNewFrame[4] = vecbyFrame[4]; // CNT, unchanged
-    vecbyNewFrame[5] = static_cast<uint8_t> ( iBodyLen & 0xFF );
-    vecbyNewFrame[6] = static_cast<uint8_t> ( ( iBodyLen >> 8 ) & 0xFF );
-
-    for ( int i = 0; i < iBodyLen; i++ )
-    {
-        vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + i] = vecbyNewBody[i];
-    }
-
-    // recompute the CRC over the new header+body content
-    CCRC CRCObj;
-
-    for ( int i = 0; i < MESS_HEADER_LENGTH_BYTE + iBodyLen; i++ )
-    {
-        CRCObj.AddByte ( vecbyNewFrame[i] );
-    }
-
-    const uint32_t iCRC                                   = CRCObj.GetCRC();
-    vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen]     = static_cast<uint8_t> ( iCRC & 0xFF );
-    vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen + 1] = static_cast<uint8_t> ( ( iCRC >> 8 ) & 0xFF );
-
-    vecbyFrame = vecbyNewFrame;
-}
-
-inline QByteArray ToByteArray ( const CVector<uint8_t>& vecbyData )
-{
-    return QByteArray ( reinterpret_cast<const char*> ( vecbyData.data() ), vecbyData.Size() );
-}
-
-inline CVector<uint8_t> FromByteArray ( const QByteArray& baData )
-{
-    const int iSize = static_cast<int> ( baData.size() );
-
-    CVector<uint8_t> vecbyData ( iSize );
-
-    for ( int i = 0; i < iSize; i++ )
-    {
-        vecbyData[i] = static_cast<uint8_t> ( baData[i] );
-    }
-
-    return vecbyData;
-}
-
-// note that CProtocol::ParseMessageFrame() returns true on error, this helper
-// returns true on success to make the test code easier to read
-inline bool ParseFrame ( const CVector<uint8_t>& vecbyFrame, CVector<uint8_t>& vecbyMesBodyData, int& iRecCounter, int& iRecID )
-{
-    return !CProtocol::ParseMessageFrame ( vecbyFrame, vecbyFrame.Size(), vecbyMesBodyData, iRecCounter, iRecID );
-}
-
-// Delivers every frame emitted by From to To through the public parsing
-// interface, emulating what CChannel does with received network packets.
-// Connecting both directions also routes the acknowledgements back to the
-// sender so that its send message queue advances.
-inline void ConnectProtocols ( CProtocol& From, CProtocol& To )
-{
-    QObject::connect ( &From, &CProtocol::MessReadyForSending, &To, [&To] ( CVector<uint8_t> vecMessage ) {
-        CVector<uint8_t> vecbyMesBodyData;
-        int              iRecCounter = 0;
-        int              iRecID      = 0;
-
-        QVERIFY ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
-
-        To.ParseMessageBody ( vecbyMesBodyData, iRecCounter, iRecID );
-    } );
-}
-
-// Renders a QVariantList the way lastError() below wants to show them, e.g.
-// QVariantList() << 2 << 0.75f  ->  "(2, 0.75)"
-inline QString DescribeArgs ( const QVariantList& Args )
-{
-    QStringList strParts;
-
-    for ( const QVariant& Arg : Args )
-    {
-        strParts << Arg.toString();
-    }
-
-    return QStringLiteral ( "(" ) + strParts.join ( QStringLiteral ( ", " ) ) + QStringLiteral ( ")" );
-}
 
 /* Fluent test driver *********************************************************/
 
 // CProtocolTester wraps a connected pair of CProtocol instances (round trip
 // family) and a mutable raw frame (frame contract family) behind a small
-// fluent API, e.g.
+// fluent API, plus a handful of static utilities the tests still reach for
+// directly (frame (de)serialization, parsing, wiring two instances together)
+// -- see the "Utilities" section below the fluent API for those, and their
+// own comments for why each one still needs to be reachable from outside
+// this class. Fluent usage, e.g.
 //
 //   QVERIFY2 ( tester.chatText ( "hello" ).roundTrips(), qPrintable ( tester.lastError() ) );
 //   QVERIFY2 ( tester.chanGain ( 2, 0.75f ).roundTripsWithin ( 1.0f / 32768 ), qPrintable ( tester.lastError() ) );
@@ -174,56 +63,69 @@ public:
 
     CProtocolTester& jitBufSize ( const int iJitBufSize )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( ChangeJittBufSize ( int ) ) );
-        m_Sender.CreateJitBufMes ( iJitBufSize );
-        return record ( QStringLiteral ( "jitBufSize ( %1 )" ).arg ( iJitBufSize ), Spy, QVariantList() << iJitBufSize );
+        return roundTripCore (
+            SIGNAL ( ChangeJittBufSize ( int ) ),
+            [iJitBufSize] ( CProtocol& p ) { p.CreateJitBufMes ( iJitBufSize ); },
+            QStringLiteral ( "jitBufSize ( %1 )" ).arg ( iJitBufSize ),
+            QVariantList() << iJitBufSize );
     }
 
     CProtocolTester& clientID ( const int iChanID )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( ClientIDReceived ( int ) ) );
-        m_Sender.CreateClientIDMes ( iChanID );
-        return record ( QStringLiteral ( "clientID ( %1 )" ).arg ( iChanID ), Spy, QVariantList() << iChanID );
+        return roundTripCore (
+            SIGNAL ( ClientIDReceived ( int ) ),
+            [iChanID] ( CProtocol& p ) { p.CreateClientIDMes ( iChanID ); },
+            QStringLiteral ( "clientID ( %1 )" ).arg ( iChanID ),
+            QVariantList() << iChanID );
     }
 
     CProtocolTester& chanGain ( const int iChanID, const float fGain )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( ChangeChanGain ( int, float ) ) );
-        m_Sender.CreateChanGainMes ( iChanID, fGain );
-        return record ( QStringLiteral ( "chanGain ( %1, %2 )" ).arg ( iChanID ).arg ( fGain ),
-                        Spy,
-                        QVariantList() << iChanID << fGain,
-                        /* iToleranceArgIdx = */ 1 );
+        return roundTripCore (
+            SIGNAL ( ChangeChanGain ( int, float ) ),
+            [iChanID, fGain] ( CProtocol& p ) { p.CreateChanGainMes ( iChanID, fGain ); },
+            QStringLiteral ( "chanGain ( %1, %2 )" ).arg ( iChanID ).arg ( fGain ),
+            QVariantList() << iChanID << fGain,
+            /* iToleranceArgIdx = */ 1 );
     }
 
     CProtocolTester& chanPan ( const int iChanID, const float fPan )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( ChangeChanPan ( int, float ) ) );
-        m_Sender.CreateChanPanMes ( iChanID, fPan );
-        return record ( QStringLiteral ( "chanPan ( %1, %2 )" ).arg ( iChanID ).arg ( fPan ),
-                        Spy,
-                        QVariantList() << iChanID << fPan,
-                        /* iToleranceArgIdx = */ 1 );
+        return roundTripCore (
+            SIGNAL ( ChangeChanPan ( int, float ) ),
+            [iChanID, fPan] ( CProtocol& p ) { p.CreateChanPanMes ( iChanID, fPan ); },
+            QStringLiteral ( "chanPan ( %1, %2 )" ).arg ( iChanID ).arg ( fPan ),
+            QVariantList() << iChanID << fPan,
+            /* iToleranceArgIdx = */ 1 );
     }
 
     CProtocolTester& muteState ( const int iChanID, const bool bIsMuted )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( MuteStateHasChangedReceived ( int, bool ) ) );
-        m_Sender.CreateMuteStateHasChangedMes ( iChanID, bIsMuted );
-        return record ( QStringLiteral ( "muteState ( %1, %2 )" ).arg ( iChanID ).arg ( bIsMuted ), Spy, QVariantList() << iChanID << bIsMuted );
+        return roundTripCore (
+            SIGNAL ( MuteStateHasChangedReceived ( int, bool ) ),
+            [iChanID, bIsMuted] ( CProtocol& p ) { p.CreateMuteStateHasChangedMes ( iChanID, bIsMuted ); },
+            QStringLiteral ( "muteState ( %1, %2 )" ).arg ( iChanID ).arg ( bIsMuted ),
+            QVariantList() << iChanID << bIsMuted );
     }
 
     CProtocolTester& chatText ( const QString& strChatText )
     {
-        QSignalSpy Spy ( &m_Receiver, SIGNAL ( ChatTextReceived ( QString ) ) );
-        m_Sender.CreateChatTextMes ( strChatText );
-        return record ( QStringLiteral ( "chatText ( \"%1\" )" ).arg ( strChatText ), Spy, QVariantList() << strChatText );
+        return roundTripCore (
+            SIGNAL ( ChatTextReceived ( QString ) ),
+            [strChatText] ( CProtocol& p ) { p.CreateChatTextMes ( strChatText ); },
+            QStringLiteral ( "chatText ( \"%1\" )" ).arg ( strChatText ),
+            QVariantList() << strChatText );
     }
 
-    // ELicenceType/ERecorderState are plain enums (not Q_ENUM/Q_DECLARE_METATYPE),
-    // so QSignalSpy cannot snapshot them into a QVariant the way it can for
-    // int/float/bool/QString above; connect a plain lambda instead, same as the
-    // original hand written test did.
+    // ELicenceType/ERecorderState don't go through roundTripCore()/QSignalSpy
+    // like the scalar-typed messages above: verified empirically (Qt
+    // 5.15.15) that QSignalSpy cannot snapshot a plain, unregistered C++
+    // enum signal parameter into a QVariant -- it warns "Unable to handle
+    // parameter ... use qRegisterMetaType to register it" and the captured
+    // QVariant comes back null (Qt 6 happens to auto-register these and
+    // would work, but this suite's floor is Qt 5.12). A plain lambda
+    // connection sidesteps QVariant entirely, same as the original hand
+    // written test did.
     CProtocolTester& licenceRequired ( const ELicenceType eLicenceType )
     {
         int iReceivedType = -1;
@@ -272,7 +174,7 @@ public:
     /* frame contract family ------------------------------------------------ */
 
     // a real, production generated well formed frame -- see
-    // SendAndCaptureFrame() above; which message it is doesn't matter here,
+    // SendAndCaptureFrame() below; which message it is doesn't matter here,
     // only that it is a genuine, valid frame to mutate below
     CProtocolTester& validFrame()
     {
@@ -342,7 +244,137 @@ public:
     // this instance, empty if that call passed -- pass to QVERIFY2()
     QString lastError() const { return m_strLastError; }
 
+    /* utilities --------------------------------------------------------------
+     * Static helpers the tests still reach for directly, outside any
+     * CProtocolTester instance -- kept here (rather than as free functions)
+     * so this header has exactly one public type. Each is used by more than
+     * one test that isn't part of the round trip/frame contract DSL above
+     * (e.g. RoundTripNetwTranspProps() and RoundTripCLPing() wire up their
+     * own CProtocol pair directly, since their signals' payloads don't fit
+     * the "few scalar args" shape roundTripCore() assumes).
+     */
+
+    // Runs Action on a fresh CProtocol instance and returns the single raw
+    // frame it hands to MessReadyForSending/CLMessReadyForSending. "Fresh"
+    // matters: the frame counter (cnt) starts at 0 and increments per message
+    // sent on an instance, so this is what makes the result byte-for-byte
+    // deterministic -- relied on by the golden frame tests in
+    // tst_protocol.cpp.
+    static CVector<uint8_t> SendAndCaptureFrame ( std::function<void ( CProtocol& )> Action )
+    {
+        CProtocol        Scratch;
+        CVector<uint8_t> vecbyFrame;
+
+        QObject::connect ( &Scratch, &CProtocol::MessReadyForSending, [&vecbyFrame] ( CVector<uint8_t> vecMessage ) { vecbyFrame = vecMessage; } );
+        QObject::connect ( &Scratch, &CProtocol::CLMessReadyForSending, [&vecbyFrame] ( CHostAddress, CVector<uint8_t> vecMessage ) {
+            vecbyFrame = vecMessage;
+        } );
+
+        Action ( Scratch );
+
+        return vecbyFrame;
+    }
+
+    // note that CProtocol::ParseMessageFrame() returns true on error, this
+    // helper returns true on success to make the test code easier to read
+    static bool ParseFrame ( const CVector<uint8_t>& vecbyFrame, CVector<uint8_t>& vecbyMesBodyData, int& iRecCounter, int& iRecID )
+    {
+        return !CProtocol::ParseMessageFrame ( vecbyFrame, vecbyFrame.Size(), vecbyMesBodyData, iRecCounter, iRecID );
+    }
+
+    // Delivers every frame emitted by From to To through the public parsing
+    // interface, emulating what CChannel does with received network packets.
+    // Connecting both directions also routes the acknowledgements back to the
+    // sender so that its send message queue advances.
+    static void ConnectProtocols ( CProtocol& From, CProtocol& To )
+    {
+        QObject::connect ( &From, &CProtocol::MessReadyForSending, &To, [&To] ( CVector<uint8_t> vecMessage ) {
+            CVector<uint8_t> vecbyMesBodyData;
+            int              iRecCounter = 0;
+            int              iRecID      = 0;
+
+            QVERIFY ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
+
+            To.ParseMessageBody ( vecbyMesBodyData, iRecCounter, iRecID );
+        } );
+    }
+
+    static QByteArray ToByteArray ( const CVector<uint8_t>& vecbyData )
+    {
+        return QByteArray ( reinterpret_cast<const char*> ( vecbyData.data() ), vecbyData.Size() );
+    }
+
+    static CVector<uint8_t> FromByteArray ( const QByteArray& baData )
+    {
+        const int iSize = static_cast<int> ( baData.size() );
+
+        CVector<uint8_t> vecbyData ( iSize );
+
+        for ( int i = 0; i < iSize; i++ )
+        {
+            vecbyData[i] = static_cast<uint8_t> ( baData[i] );
+        }
+
+        return vecbyData;
+    }
+
+    // keeps vecbyFrame's TAG/CNT bytes but overwrites its ID and body
+    // (rewriting the length field and recomputing the CRC so the result is
+    // still a well formed *frame* even though the *body* deliberately might
+    // not be) -- for testing how CProtocol::ParseMessageBody() reacts to
+    // malformed bodies, as opposed to malformed frames (see
+    // RejectInvalidMessageBody()/IgnoreAcknWithEmptyBody() in
+    // tst_protocol.cpp)
+    static void ReplaceIdAndBody ( CVector<uint8_t>& vecbyFrame, const int iID, const CVector<uint8_t>& vecbyNewBody )
+    {
+        const int        iBodyLen = vecbyNewBody.Size();
+        CVector<uint8_t> vecbyNewFrame ( MESS_LEN_WITHOUT_DATA_BYTE + iBodyLen );
+
+        vecbyNewFrame[0] = vecbyFrame[0]; // TAG, unchanged
+        vecbyNewFrame[1] = vecbyFrame[1];
+        vecbyNewFrame[2] = static_cast<uint8_t> ( iID & 0xFF ); // ID, overwritten
+        vecbyNewFrame[3] = static_cast<uint8_t> ( ( iID >> 8 ) & 0xFF );
+        vecbyNewFrame[4] = vecbyFrame[4]; // CNT, unchanged
+        vecbyNewFrame[5] = static_cast<uint8_t> ( iBodyLen & 0xFF );
+        vecbyNewFrame[6] = static_cast<uint8_t> ( ( iBodyLen >> 8 ) & 0xFF );
+
+        for ( int i = 0; i < iBodyLen; i++ )
+        {
+            vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + i] = vecbyNewBody[i];
+        }
+
+        // recompute the CRC over the new header+body content
+        CCRC CRCObj;
+
+        for ( int i = 0; i < MESS_HEADER_LENGTH_BYTE + iBodyLen; i++ )
+        {
+            CRCObj.AddByte ( vecbyNewFrame[i] );
+        }
+
+        const uint32_t iCRC                                   = CRCObj.GetCRC();
+        vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen]     = static_cast<uint8_t> ( iCRC & 0xFF );
+        vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen + 1] = static_cast<uint8_t> ( ( iCRC >> 8 ) & 0xFF );
+
+        vecbyFrame = vecbyNewFrame;
+    }
+
 private:
+    // Shared by every round trip verb above except licenceRequired()/
+    // recorderState() (see their own comment): wires a QSignalSpy to
+    // pSignalSig (a SIGNAL(...) macro expansion), runs Action on m_Sender,
+    // and records the result under strLabel for the terminal methods to
+    // judge later.
+    CProtocolTester& roundTripCore ( const char*                        pSignalSig,
+                                     std::function<void ( CProtocol& )> Action,
+                                     const QString&                     strLabel,
+                                     const QVariantList&                ExpectedArgs,
+                                     const int                          iToleranceArgIdx = -1 )
+    {
+        QSignalSpy Spy ( &m_Receiver, pSignalSig );
+        Action ( m_Sender );
+        return record ( strLabel, Spy, ExpectedArgs, iToleranceArgIdx );
+    }
+
     CProtocolTester& record ( const QString&      strDescription,
                               const QSignalSpy&   Spy,
                               const QVariantList& ExpectedArgs,
@@ -427,6 +459,20 @@ private:
     }
 
     QString frameHex() const { return QString::fromLatin1 ( ToByteArray ( m_vecbyFrame ).toHex ( ' ' ) ); }
+
+    // Renders a QVariantList the way verifyRoundTrip() above wants to show
+    // them, e.g. QVariantList() << 2 << 0.75f  ->  "(2, 0.75)"
+    static QString DescribeArgs ( const QVariantList& Args )
+    {
+        QStringList strParts;
+
+        for ( const QVariant& Arg : Args )
+        {
+            strParts << Arg.toString();
+        }
+
+        return QStringLiteral ( "(" ) + strParts.join ( QStringLiteral ( ", " ) ) + QStringLiteral ( ")" );
+    }
 
     CProtocol m_Sender;
     CProtocol m_Receiver;

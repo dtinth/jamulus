@@ -66,42 +66,32 @@ private slots:
 
 void CTestProtocol::GoldenFrameJitBufSize()
 {
-    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } );
+    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } );
 
-    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
+    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
 }
 
 void CTestProtocol::GoldenFrameClientID()
 {
-    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 7 ); } );
+    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 7 ); } );
 
-    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 20 00 00 01 00 07 1e bc" ) );
+    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 20 00 00 01 00 07 1e bc" ) );
 }
 
 void CTestProtocol::GoldenFrameChatText()
 {
-    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "Hi" ) ); } );
+    const CVector<uint8_t> vecbyFrame =
+        CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "Hi" ) ); } );
 
-    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 12 00 00 04 00 02 00 48 69 4a 2c" ) );
+    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 12 00 00 04 00 02 00 48 69 4a 2c" ) );
 }
 
 void CTestProtocol::GoldenFrameCLPing()
 {
-    CProtocol        Sender;
-    CVector<uint8_t> vecbyFrame;
+    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame (
+        [] ( CProtocol& p ) { p.CreateCLPingMes ( CHostAddress ( QHostAddress ( "203.0.113.42" ), 22124 ), 12345 ); } );
 
-    QObject::connect ( &Sender, &CProtocol::CLMessReadyForSending, [&vecbyFrame] ( CHostAddress, CVector<uint8_t> vecMessage ) {
-        vecbyFrame = vecMessage;
-    } );
-
-    // connection less messages don't depend on a CProtocol instance's send
-    // counter (it's zero by definition, see CreateAndImmSendConLessMessage()
-    // in protocol.cpp), so unlike the other three golden frames above, a
-    // freshly constructed CProtocol isn't actually load-bearing for
-    // determinism here -- kept anyway for consistency with the others.
-    Sender.CreateCLPingMes ( CHostAddress ( QHostAddress ( "203.0.113.42" ), 22124 ), 12345 );
-
-    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 e9 03 00 04 00 39 30 00 00 54 7a" ) );
+    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 e9 03 00 04 00 39 30 00 00 54 7a" ) );
 }
 
 void CTestProtocol::ParseValidFrame()
@@ -112,13 +102,13 @@ void CTestProtocol::ParseValidFrame()
     // evaluates to the right value is the round trip family's job; whether
     // the frame's exact *bytes* are the ones production is contractually
     // required to keep emitting is the golden frame tests' job above.
-    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 42 ); } );
+    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 42 ); } );
 
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = -1;
     int              iRecID      = -1;
 
-    QVERIFY ( ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
+    QVERIFY ( CProtocolTester::ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
     QCOMPARE ( iRecCounter, 0 );
     QCOMPARE ( iRecID, PROTMESSID_CLIENT_ID );
 }
@@ -131,7 +121,7 @@ void CTestProtocol::RejectInvalidFrame_data()
     // own validFrame()); its actual body length (rather than a hardcoded
     // constant) drives the length-field mutations further down so this stays
     // correct regardless of which message validFrame() happens to use
-    const QByteArray baValidFrame = ToByteArray ( CProtocolTester().validFrame().frame() );
+    const QByteArray baValidFrame = CProtocolTester::ToByteArray ( CProtocolTester().validFrame().frame() );
     const int        iBodyLen     = baValidFrame.size() - MESS_LEN_WITHOUT_DATA_BYTE;
 
     QTest::newRow ( "empty input" ) << QByteArray();
@@ -146,15 +136,15 @@ void CTestProtocol::RejectInvalidFrame_data()
 
     // the rest reuse CProtocolTester's own frame mutators (withBadCRC() etc.)
     // via frame(), rather than duplicating that logic here
-    QTest::newRow ( "invalid CRC" ) << ToByteArray ( CProtocolTester().validFrame().withBadCRC().frame() );
+    QTest::newRow ( "invalid CRC" ) << CProtocolTester::ToByteArray ( CProtocolTester().validFrame().withBadCRC().frame() );
 
     QTest::newRow ( "declared length larger than data" )
-        << ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen + 1 ).frame() );
+        << CProtocolTester::ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen + 1 ).frame() );
 
     QTest::newRow ( "declared length smaller than data" )
-        << ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen - 1 ).frame() );
+        << CProtocolTester::ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen - 1 ).frame() );
 
-    QTest::newRow ( "frame truncated on the wire" ) << ToByteArray ( CProtocolTester().validFrame().truncatedBy ( 2 ).frame() );
+    QTest::newRow ( "frame truncated on the wire" ) << CProtocolTester::ToByteArray ( CProtocolTester().validFrame().truncatedBy ( 2 ).frame() );
 
     // pure junk: no valid frame to mutate, so these two stay raw literals
     QTest::newRow ( "junk data" ) << QByteArray ( 50, static_cast<char> ( 0xA5 ) );
@@ -170,7 +160,7 @@ void CTestProtocol::RejectInvalidFrame()
 {
     QFETCH ( QByteArray, baFrame );
 
-    const CVector<uint8_t> vecbyFrame = FromByteArray ( baFrame );
+    const CVector<uint8_t> vecbyFrame = CProtocolTester::FromByteArray ( baFrame );
 
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = 0;
@@ -213,7 +203,7 @@ void CTestProtocol::IgnoreAcknWithEmptyBody()
             int              iRecCounter = 0;
             int              iRecID      = 0;
 
-            QVERIFY ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
+            QVERIFY ( CProtocolTester::ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
 
             Peer.ParseMessageBody ( vecbyMesBodyData, iRecCounter, iRecID );
         } );
@@ -222,7 +212,7 @@ void CTestProtocol::IgnoreAcknWithEmptyBody()
     }
 
     CVector<uint8_t> vecbyEmptyBodyAckn = vecbyRealAcknFrame;
-    ReplaceIdAndBody ( vecbyEmptyBodyAckn, PROTMESSID_ACKN, CVector<uint8_t> ( 0 ) );
+    CProtocolTester::ReplaceIdAndBody ( vecbyEmptyBodyAckn, PROTMESSID_ACKN, CVector<uint8_t> ( 0 ) );
 
     CProtocol Receiver;
 
@@ -235,7 +225,7 @@ void CTestProtocol::IgnoreAcknWithEmptyBody()
     int              iRecID      = 0;
 
     // the frame itself is well formed and must parse successfully
-    QVERIFY ( ParseFrame ( vecbyEmptyBodyAckn, vecbyMesBodyData, iRecCounter, iRecID ) );
+    QVERIFY ( CProtocolTester::ParseFrame ( vecbyEmptyBodyAckn, vecbyMesBodyData, iRecCounter, iRecID ) );
     QCOMPARE ( iRecID, PROTMESSID_ACKN );
     QCOMPARE ( vecbyMesBodyData.Size(), 0 );
 
@@ -365,8 +355,8 @@ void CTestProtocol::RoundTripNetwTranspProps()
     CProtocol Sender;
     CProtocol Receiver;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
+    CProtocolTester::ConnectProtocols ( Sender, Receiver );
+    CProtocolTester::ConnectProtocols ( Receiver, Sender );
 
     CNetworkTransportProps ReceivedProps;
     int                    iNumReceived = 0;
@@ -437,7 +427,7 @@ void CTestProtocol::RoundTripCLPing()
         int              iRecCounter = -1;
         int              iRecID      = 0;
 
-        QVERIFY ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
+        QVERIFY ( CProtocolTester::ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
 
         // the counter of connection less messages is zero by definition
         QCOMPARE ( iRecCounter, 0 );
@@ -509,14 +499,14 @@ void CTestProtocol::RejectInvalidMessageBody()
     // reaches the body evaluation; the base frame just needs to be *a* real,
     // valid frame, its own message/ID/body are irrelevant since
     // ReplaceIdAndBody() overwrites both
-    CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 0 ); } );
-    ReplaceIdAndBody ( vecbyFrame, iID, FromByteArray ( baBody ) );
+    CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 0 ); } );
+    CProtocolTester::ReplaceIdAndBody ( vecbyFrame, iID, CProtocolTester::FromByteArray ( baBody ) );
 
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = 0;
     int              iRecID      = 0;
 
-    QVERIFY ( ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
+    QVERIFY ( CProtocolTester::ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
 
     // note that an ACKN frame is still sent for a message with an invalid
     // body, the evaluation error only suppresses the receive signal
