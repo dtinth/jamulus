@@ -95,11 +95,31 @@ jobs:
           qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
           nmake
 
+      # Output is captured to a file and grepped for the QtTest "Totals:"
+      # summary line, so the job fails if the suite ever exits 0 without
+      # actually having run its tests (rather than trusting the exit code
+      # alone).
       - name: Run unit tests (Unix)
         if: runner.os != 'Windows'
-        run: ./build-test/jamulus-test
+        run: |
+          ./build-test/jamulus-test | tee test-output.txt
+          grep -q 'Totals: 41 passed' test-output.txt
 
+      # cmd's "CALL" wrapping around a console-subsystem exe silently
+      # swallowed the test suite's stdout here, so this uses pwsh and
+      # captures the output to a file (same "Totals:" gate as the Unix
+      # jobs) instead of relying on the exit code.
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
-        run: build-test\jamulus-test.exe
+        shell: pwsh
+        run: |
+          & .\build-test\jamulus-test.exe | Tee-Object -FilePath test-output.txt
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Error "jamulus-test.exe exited with code $exitCode"
+            exit $exitCode
+          }
+          if (-not (Select-String -Path test-output.txt -Pattern 'Totals: 41 passed' -Quiet)) {
+            Write-Error "Expected 'Totals: 41 passed' not found in captured test output"
+            exit 1
+          }
