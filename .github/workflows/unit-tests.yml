@@ -53,6 +53,20 @@ jobs:
             runs_on: windows-latest
             qmake: qmake
 
+          # Same Qt6/ubuntu-24.04 toolchain as the plain Linux Qt6 job above,
+          # but compiled with GCC's sanitizers to catch memory/UB issues a
+          # plain build wouldn't. The flags are appended on the qmake command
+          # line (qmake_extra_args, used by the Build unit tests (Unix) step
+          # below) rather than edited into test.pro, so no other job is
+          # affected.
+          - name: Linux (Qt 6, ASan/UBSan)
+            runs_on: ubuntu-24.04
+            qt_packages: qt6-base-dev
+            qmake: qmake6
+            qmake_extra_args: >-
+              QMAKE_CXXFLAGS+="-fsanitize=address,undefined"
+              QMAKE_LFLAGS+="-fsanitize=address,undefined"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -129,7 +143,7 @@ jobs:
         run: |
           mkdir build-test
           cd build-test
-          ${{ matrix.config.qmake }} ../src/test/test.pro
+          ${{ matrix.config.qmake }} ../src/test/test.pro ${{ matrix.config.qmake_extra_args }}
           make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
 
       # ilammy/msvc-dev-cmd (its latest release and even its unreleased
@@ -182,6 +196,14 @@ jobs:
       # alone).
       - name: Run unit tests (Unix)
         if: runner.os != 'Windows'
+        env:
+          # No-ops on the plain (non-sanitized) builds; on the ASan/UBSan job
+          # this makes any sanitizer report abort the process immediately
+          # instead of just printing a diagnostic and exiting 0, so the
+          # Totals: gate below can't be fooled by a report that arrives after
+          # all tests otherwise "pass".
+          ASAN_OPTIONS: halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           ./build-test/jamulus-test | tee test-output.txt
           grep -q 'Totals: 41 passed' test-output.txt
