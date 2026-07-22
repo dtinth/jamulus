@@ -16,11 +16,13 @@ permissions:
   contents: read
 
 env:
-  # Qt version installed via install-qt-action on macOS and Windows. This
-  # matches the Qt 6 version used by the autobuild workflow; note that older
-  # 6.8.x headers do not compile with the Xcode 26 toolchain on macos-latest.
+  # Same Qt 6 version and aqtinstall pinning as the autobuild workflow's
+  # macOS/Windows builds (.github/autobuild/mac.sh, windows.ps1) -- Qt is
+  # installed the same way here (see the "Install Qt (aqtinstall, ...)"
+  # steps below) so this exercises the same Qt build upstream ships.
   # Linux jobs use the distro Qt packages instead (see matrix below).
   QT_VERSION: 6.10.2
+  AQTINSTALL_VERSION: 3.3.0
 
 jobs:
   unit-tests:
@@ -67,12 +69,60 @@ jobs:
         with:
           xcode-version: ${{ matrix.config.xcode_version }}
 
-      - name: Install Qt (aqtinstall)
-        if: runner.os != 'Linux'
-        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+      - name: Cache Qt (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
         with:
-          version: ${{ env.QT_VERSION }}
-          cache: true
+          path: ~/qt
+          key: macos-qt-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/unit-tests.yml') }}
+
+      - name: Cache Qt (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v6
+        with:
+          path: C:\Qt
+          key: windows-qt-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/unit-tests.yml') }}
+
+      # Same install mechanism as the autobuild workflow's Ensure-Qt
+      # (.github/autobuild/mac.sh: venv + pip install aqtinstall + aqt
+      # install-qt), trimmed to just the qtbase archive -- this test suite
+      # only needs QtCore/QtNetwork/QtTest (CONFIG += testcase, QT -= gui
+      # in src/test/test.pro), not qttools/qttranslations/qtmultimedia.
+      - name: Install Qt (aqtinstall, macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d ~/qt ]; then
+            echo "Using Qt installation from previous run (actions/cache)"
+          else
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install "aqtinstall==${{ env.AQTINSTALL_VERSION }}"
+            python3 -m aqt install-qt --outputdir ~/qt mac desktop "${{ env.QT_VERSION }}" --archives qtbase
+            deactivate
+            rm -rf venv
+          fi
+          # Same PATH setup as build_app_as_dmg_installer() in mac.sh (macos/
+          # is the Qt6 layout, clang_64/ is Qt5's; only one will exist here).
+          echo "$HOME/qt/${{ env.QT_VERSION }}/macos/bin" >> "$GITHUB_PATH"
+          echo "$HOME/qt/${{ env.QT_VERSION }}/clang_64/bin" >> "$GITHUB_PATH"
+
+      # Same install mechanism as the autobuild workflow's Ensure-Qt
+      # (.github/autobuild/windows.ps1: pip install aqtinstall + aqt
+      # install-qt), trimmed to just the qtbase archive for the same reason
+      # as the macOS step above.
+      - name: Install Qt (aqtinstall, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path -Path C:\Qt) {
+            Write-Host "Using Qt installation from previous run (actions/cache)"
+          } else {
+            pip install "aqtinstall==$env:AQTINSTALL_VERSION"
+            aqt install-qt --outputdir C:\Qt windows desktop $env:QT_VERSION win64_msvc2022_64 --archives qtbase
+          }
+          # Same bin directory layout as windows.ps1/deploy_windows.ps1 use
+          # ("$QtInstallPath\$QtCompile\bin" with QtCompile64=msvc2022_64).
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
 
       - name: Build unit tests (Unix)
         if: runner.os != 'Windows'
