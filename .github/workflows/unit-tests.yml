@@ -117,9 +117,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
+          dir build-test\jamulus-test.exe
           build-test\jamulus-test.exe > test-output.txt 2>&1
           set EXE_EXITCODE=%ERRORLEVEL%
+          echo EXE_EXITCODE=%EXE_EXITCODE%
+          dir test-output.txt
           type test-output.txt
+          echo ---end of captured output---
           findstr /C:"Totals: 41 passed" test-output.txt > nul
           if errorlevel 1 (
             echo ##[error]Expected 'Totals: 41 passed' not found in captured test output
