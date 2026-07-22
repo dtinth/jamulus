@@ -105,27 +105,27 @@ jobs:
           ./build-test/jamulus-test | tee test-output.txt
           grep -q 'Totals: 41 passed' test-output.txt
 
-      # cmd's "CALL" wrapping around a console-subsystem exe silently
-      # swallowed the test suite's stdout here, so this uses pwsh instead.
-      # File redirection (*>) is used rather than piping through
-      # Tee-Object: piping reads the child process's output asynchronously
-      # through .NET, which can lose output that arrives in one buffered
-      # burst right before a fast-exiting process closes its stdout handle;
-      # ">"-style redirection hands the exe's stdout handle straight to the
-      # file at the OS level, so nothing can race it away. The same
-      # "Totals:" gate as the Unix jobs then proves the suite actually ran.
+      # The test suite's stdout was getting lost here regardless of shell:
+      # both cmd's plain invocation and pwsh's pipe/redirection operators
+      # (Tee-Object, *>) go through an async .NET reader over the child
+      # process's handles, which can race a fast-exiting process and drop
+      # its final buffered output. cmd's own "> file" redirection is a
+      # genuine OS-level handle hand-off (no managed reader involved), so
+      # it captures reliably; findstr then gates on the same "Totals:"
+      # summary line as the Unix jobs to prove the suite actually ran.
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: cmd
         run: |
-          & .\build-test\jamulus-test.exe *> test-output.txt
-          $exitCode = $LASTEXITCODE
-          Get-Content test-output.txt
-          if ($exitCode -ne 0) {
-            Write-Error "jamulus-test.exe exited with code $exitCode"
-            exit $exitCode
-          }
-          if (-not (Select-String -Path test-output.txt -Pattern 'Totals: 41 passed' -Quiet)) {
-            Write-Error "Expected 'Totals: 41 passed' not found in captured test output"
-            exit 1
-          }
+          build-test\jamulus-test.exe > test-output.txt 2>&1
+          set EXE_EXITCODE=%ERRORLEVEL%
+          type test-output.txt
+          findstr /C:"Totals: 41 passed" test-output.txt > nul
+          if errorlevel 1 (
+            echo ##[error]Expected 'Totals: 41 passed' not found in captured test output
+            exit /b 1
+          )
+          if not "%EXE_EXITCODE%"=="0" (
+            echo ##[error]jamulus-test.exe exited with code %EXE_EXITCODE%
+            exit /b %EXE_EXITCODE%
+          )
