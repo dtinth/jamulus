@@ -1,8 +1,22 @@
 # Spike: headless client/server smoke test in CI (jamulussoftware/jamulus#2428)
 
-Status: prototype / spike. Not wired into CI. Answers the questions from
-dtinth/jamulus#9; script lives at `tools/smoke-test.sh` (provisional
-location).
+Status: prototype spike, now wired into CI as `.github/workflows/smoke-test.yml`
+on this branch (see that file's own NOTE comment about reshaping triggers
+before upstreaming). Answers the questions from dtinth/jamulus#9.
+
+**Update:** the original spike shipped the checker as two files,
+`tools/smoke-test.sh` (bash orchestration) + `tools/smoke-test-jrpc.py`
+(JSON-RPC helper), so it could run on Linux only. Per the CI follow-up
+task, these were merged into a single cross-platform `tools/smoke-test.py`
+(pure standard library: `subprocess`/`socket`/`json`/`argparse`/`tempfile`
+-- no pip install needed in CI) so the same script drives the smoke test
+on Linux, macOS and Windows, including Windows-appropriate process-tree
+teardown via `taskkill /T /F` instead of POSIX signals. Verification
+semantics are unchanged: client `connected:true` AND server
+`connections>=1`, both polled over JSON-RPC. A `--skip-jackd` flag was
+added so the same script also drives builds that don't need an external
+JACK daemon (e.g. a native CoreAudio/ASIO client). See the "CI follow-up"
+section near the end of this document for per-platform results.
 
 ## TL;DR
 
