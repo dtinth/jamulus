@@ -27,6 +27,7 @@
 //   QVERIFY2 ( tester.chatText ( "hello" ).roundTrips(), qPrintable ( tester.lastError() ) );
 //   QVERIFY2 ( tester.chanGain ( 2, 0.75f ).roundTripsWithin ( 1.0f / 32768 ), qPrintable ( tester.lastError() ) );
 //   QVERIFY2 ( tester.validFrame().truncatedBy ( 3 ).isRejected(), qPrintable ( tester.lastError() ) );
+//   QCOMPARE ( tester.Capture ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } ), QString ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
 //
 // Design note on failure locations and messages: QtTest's QVERIFY/QCOMPARE
 // macros report whatever __FILE__/__LINE__ they expand at, so if the
@@ -173,12 +174,12 @@ public:
 
     /* frame contract family ------------------------------------------------ */
 
-    // a real, production generated well formed frame -- see
-    // SendAndCaptureFrame() below; which message it is doesn't matter here,
-    // only that it is a genuine, valid frame to mutate below
+    // a real, production generated well formed frame -- see captureFrame()
+    // below; which message it is doesn't matter here, only that it is a
+    // genuine, valid frame to mutate below
     CProtocolTester& validFrame()
     {
-        m_vecbyFrame     = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "frame contract test" ) ); } );
+        m_vecbyFrame     = captureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "frame contract test" ) ); } );
         m_strDescription = QStringLiteral ( "validFrame()" );
         m_strLastError.clear();
         return *this;
@@ -244,6 +245,21 @@ public:
     // this instance, empty if that call passed -- pass to QVERIFY2()
     QString lastError() const { return m_strLastError; }
 
+    /* golden frame capture -------------------------------------------------- */
+
+    // Runs Action on a fresh, scratch CProtocol instance (independent of this
+    // tester's own round trip pair above) and returns the single raw frame it
+    // hands to MessReadyForSending/CLMessReadyForSending, as a space
+    // separated hex string -- the on-wire compatibility contract the golden
+    // frame tests in tst_protocol.cpp pin with a fixed literal. "Fresh"
+    // matters: the frame counter (cnt) starts at 0 and increments per message
+    // sent on an instance, so this is what makes the result byte-for-byte
+    // deterministic.
+    QString Capture ( std::function<void ( CProtocol& )> Action )
+    {
+        return QString::fromLatin1 ( ToByteArray ( captureFrame ( Action ) ).toHex ( ' ' ) );
+    }
+
     /* utilities --------------------------------------------------------------
      * Static helpers the tests still reach for directly, outside any
      * CProtocolTester instance -- kept here (rather than as free functions)
@@ -253,27 +269,6 @@ public:
      * own CProtocol pair directly, since their signals' payloads don't fit
      * the "few scalar args" shape roundTripCore() assumes).
      */
-
-    // Runs Action on a fresh CProtocol instance and returns the single raw
-    // frame it hands to MessReadyForSending/CLMessReadyForSending. "Fresh"
-    // matters: the frame counter (cnt) starts at 0 and increments per message
-    // sent on an instance, so this is what makes the result byte-for-byte
-    // deterministic -- relied on by the golden frame tests in
-    // tst_protocol.cpp.
-    static CVector<uint8_t> SendAndCaptureFrame ( std::function<void ( CProtocol& )> Action )
-    {
-        CProtocol        Scratch;
-        CVector<uint8_t> vecbyFrame;
-
-        QObject::connect ( &Scratch, &CProtocol::MessReadyForSending, [&vecbyFrame] ( CVector<uint8_t> vecMessage ) { vecbyFrame = vecMessage; } );
-        QObject::connect ( &Scratch, &CProtocol::CLMessReadyForSending, [&vecbyFrame] ( CHostAddress, CVector<uint8_t> vecMessage ) {
-            vecbyFrame = vecMessage;
-        } );
-
-        Action ( Scratch );
-
-        return vecbyFrame;
-    }
 
     // note that CProtocol::ParseMessageFrame() returns true on error, this
     // helper returns true on success to make the test code easier to read
@@ -459,6 +454,26 @@ private:
     }
 
     QString frameHex() const { return QString::fromLatin1 ( ToByteArray ( m_vecbyFrame ).toHex ( ' ' ) ); }
+
+    // Runs Action on a fresh CProtocol instance and returns the single raw
+    // frame it hands to MessReadyForSending/CLMessReadyForSending -- the raw-
+    // bytes counterpart to the public, hex-string-returning Capture() above;
+    // kept private since validFrame() is the only other thing that needs the
+    // bytes themselves rather than a hex dump.
+    static CVector<uint8_t> captureFrame ( std::function<void ( CProtocol& )> Action )
+    {
+        CProtocol        Scratch;
+        CVector<uint8_t> vecbyFrame;
+
+        QObject::connect ( &Scratch, &CProtocol::MessReadyForSending, [&vecbyFrame] ( CVector<uint8_t> vecMessage ) { vecbyFrame = vecMessage; } );
+        QObject::connect ( &Scratch, &CProtocol::CLMessReadyForSending, [&vecbyFrame] ( CHostAddress, CVector<uint8_t> vecMessage ) {
+            vecbyFrame = vecMessage;
+        } );
+
+        Action ( Scratch );
+
+        return vecbyFrame;
+    }
 
     // Renders a QVariantList the way verifyRoundTrip() above wants to show
     // them, e.g. QVariantList() << 2 << 0.75f  ->  "(2, 0.75)"

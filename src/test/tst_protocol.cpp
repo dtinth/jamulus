@@ -66,32 +66,42 @@ private slots:
 
 void CTestProtocol::GoldenFrameJitBufSize()
 {
-    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } );
+    CProtocolTester tester;
 
-    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
+    const QString actual = tester.Capture ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } );
+
+    QCOMPARE ( actual, QString ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
 }
 
 void CTestProtocol::GoldenFrameClientID()
 {
-    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 7 ); } );
+    CProtocolTester tester;
 
-    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 20 00 00 01 00 07 1e bc" ) );
+    const QString actual = tester.Capture ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 7 ); } );
+
+    QCOMPARE ( actual, QString ( "00 00 20 00 00 01 00 07 1e bc" ) );
 }
 
 void CTestProtocol::GoldenFrameChatText()
 {
-    const CVector<uint8_t> vecbyFrame =
-        CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "Hi" ) ); } );
+    CProtocolTester tester;
 
-    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 12 00 00 04 00 02 00 48 69 4a 2c" ) );
+    const QString actual = tester.Capture ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "Hi" ) ); } );
+
+    QCOMPARE ( actual, QString ( "00 00 12 00 00 04 00 02 00 48 69 4a 2c" ) );
 }
 
 void CTestProtocol::GoldenFrameCLPing()
 {
-    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame (
-        [] ( CProtocol& p ) { p.CreateCLPingMes ( CHostAddress ( QHostAddress ( "203.0.113.42" ), 22124 ), 12345 ); } );
+    CProtocolTester tester;
 
-    QCOMPARE ( CProtocolTester::ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 e9 03 00 04 00 39 30 00 00 54 7a" ) );
+    // Capture() listens for both MessReadyForSending and
+    // CLMessReadyForSending, so connection-less messages need no special
+    // handling here.
+    const QString actual =
+        tester.Capture ( [] ( CProtocol& p ) { p.CreateCLPingMes ( CHostAddress ( QHostAddress ( "203.0.113.42" ), 22124 ), 12345 ); } );
+
+    QCOMPARE ( actual, QString ( "00 00 e9 03 00 04 00 39 30 00 00 54 7a" ) );
 }
 
 void CTestProtocol::ParseValidFrame()
@@ -102,7 +112,7 @@ void CTestProtocol::ParseValidFrame()
     // evaluates to the right value is the round trip family's job; whether
     // the frame's exact *bytes* are the ones production is contractually
     // required to keep emitting is the golden frame tests' job above.
-    const CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 42 ); } );
+    const CVector<uint8_t> vecbyFrame = CProtocolTester().validFrame().frame();
 
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = -1;
@@ -110,7 +120,7 @@ void CTestProtocol::ParseValidFrame()
 
     QVERIFY ( CProtocolTester::ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
     QCOMPARE ( iRecCounter, 0 );
-    QCOMPARE ( iRecID, PROTMESSID_CLIENT_ID );
+    QCOMPARE ( iRecID, PROTMESSID_CHAT_TEXT );
 }
 
 void CTestProtocol::RejectInvalidFrame_data()
@@ -499,7 +509,7 @@ void CTestProtocol::RejectInvalidMessageBody()
     // reaches the body evaluation; the base frame just needs to be *a* real,
     // valid frame, its own message/ID/body are irrelevant since
     // ReplaceIdAndBody() overwrites both
-    CVector<uint8_t> vecbyFrame = CProtocolTester::SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 0 ); } );
+    CVector<uint8_t> vecbyFrame = CProtocolTester().validFrame().frame();
     CProtocolTester::ReplaceIdAndBody ( vecbyFrame, iID, CProtocolTester::FromByteArray ( baBody ) );
 
     CVector<uint8_t> vecbyMesBodyData;
