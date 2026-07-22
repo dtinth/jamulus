@@ -40,8 +40,12 @@ jobs:
             runs_on: ubuntu-24.04
             qt_packages: qt6-base-dev
             qmake: qmake6
+          # macos-15 with Xcode 16.3.0 mirrors the autobuild workflow's macOS
+          # configuration; the Xcode 26 toolchain of newer images cannot
+          # compile the Qt 6 headers yet (implicit __yield declaration error).
           - name: macOS (Qt 6)
-            runs_on: macos-latest
+            runs_on: macos-15
+            xcode_version: 16.3.0
             qmake: qmake
           - name: Windows (Qt 6, MSVC)
             runs_on: windows-latest
@@ -56,6 +60,12 @@ jobs:
         run: |
           sudo apt-get -qq update
           sudo apt-get -qq --no-install-recommends -y install ${{ matrix.config.qt_packages }}
+
+      - name: Select Xcode version
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.6.0
+        with:
+          xcode-version: ${{ matrix.config.xcode_version }}
 
       - name: Install Qt (aqtinstall)
         if: runner.os != 'Linux'
