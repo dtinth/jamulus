@@ -1,0 +1,93 @@
+name: Unit Tests
+
+# NOTE: The triggers below are shaped for iterating on the testing-harness
+# branch. Before upstreaming, reshape them to the usual pattern of the other
+# workflows in this repository (push + pull_request on main with the same
+# paths: filters).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ testing-harness ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/unit-tests.yml'
+
+permissions:
+  contents: read
+
+env:
+  # Qt version installed via install-qt-action on macOS and Windows.
+  # Linux jobs use the distro Qt packages instead (see matrix below).
+  QT_VERSION: 6.8.3
+
+jobs:
+  unit-tests:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # Oldest supported Qt line: distro Qt 5.15 proves the Qt >= 5.12
+          # compatibility floor of the test suite.
+          - name: Linux (Qt 5, ubuntu-22.04)
+            runs_on: ubuntu-22.04
+            qt_packages: qtbase5-dev qt5-qmake
+            qmake: qmake
+          - name: Linux (Qt 6, ubuntu-24.04)
+            runs_on: ubuntu-24.04
+            qt_packages: qt6-base-dev
+            qmake: qmake6
+          - name: macOS (Qt 6)
+            runs_on: macos-latest
+            qmake: qmake
+          - name: Windows (Qt 6, MSVC)
+            runs_on: windows-latest
+            qmake: qmake
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Qt (Linux distro packages)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq --no-install-recommends -y install ${{ matrix.config.qt_packages }}
+
+      - name: Install Qt (aqtinstall)
+        if: runner.os != 'Linux'
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Build unit tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir build-test
+          cd build-test
+          ${{ matrix.config.qmake }} ../src/test/test.pro
+          make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
+
+      - name: Build unit tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          mkdir build-test
+          cd build-test
+          qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
+          nmake
+
+      - name: Run unit tests (Unix)
+        if: runner.os != 'Windows'
+        run: ./build-test/jamulus-test
+
+      - name: Run unit tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: build-test\jamulus-test.exe
