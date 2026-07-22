@@ -57,7 +57,16 @@ jobs:
             # x86_64 unless TARGET_ARCHS says otherwise; the real autobuild
             # workflow passes TARGET_ARCHS="x86_64 arm64" for universal
             # release binaries, which this smoke test doesn't need).
-            qmake_extra_args: "QT_ARCH=arm64 QMAKE_APPLE_DEVICE_ARCHS=arm64"
+            #
+            # QT+=widgets works around a genuine upstream gap: src/sound/
+            # coreaudio-mac/sound.h unconditionally `#include <QMessageBox>`
+            # (not guarded by any headless check, and never actually used
+            # in that file), so a plain CONFIG+=headless build can't even
+            # compile on macOS today. Linking widgets (never invoked at
+            # runtime here) is a CI-only workaround to prove the rest of
+            # the smoke test; the real fix belongs upstream (drop that
+            # unused include). See research/smoke-test-spike.md.
+            qmake_extra_args: "QT_ARCH=arm64 QMAKE_APPLE_DEVICE_ARCHS=arm64 QT+=widgets"
             # No JACK: this build uses the default CoreAudio backend (no
             # CONFIG+=jackonmac), so the smoke test must not try to start
             # a jackd it doesn't need.
@@ -70,6 +79,19 @@ jobs:
             # driver exists on a CI runner to exercise anyway) and reuses
             # the same JACK "dummy" driver as the other two platforms.
             qmake_config: "headless jackonwindows"
+            # Works around another genuine upstream gap: src/main.cpp's
+            # `#ifdef _WIN32` block unconditionally calls
+            # QApplication::applicationDirPath(), but headless builds
+            # `#include <QApplication>` only `#ifndef HEADLESS` -- so a
+            # plain CONFIG+=headless build can't compile on Windows either.
+            # /FIQApplication force-includes the header MSVC would
+            # otherwise skip (QT+=widgets makes it resolvable/linkable).
+            # Like the macOS QT+=widgets workaround above, this is a
+            # CI-only patch to prove feasibility; the real fix belongs
+            # upstream (call QCoreApplication::applicationDirPath()
+            # instead, which needs no GUI module at all). See
+            # research/smoke-test-spike.md.
+            qmake_extra_args: "QT+=widgets QMAKE_CXXFLAGS+=/FIQApplication"
             skip_jackd: false
 
     steps:
@@ -232,7 +254,7 @@ jobs:
 
           mkdir build
           cd build
-          qmake ..\Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}" "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
+          qmake ..\Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}" "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=." ${{ matrix.config.qmake_extra_args }}
           nmake
 
       # Locates the built binary regardless of platform-specific layout
