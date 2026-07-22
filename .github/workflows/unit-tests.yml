@@ -96,7 +96,12 @@ jobs:
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          echo VSINSTALLDIR=%VSINSTALLDIR%
+          echo PATH length before: & powershell -NoProfile -Command "$env:PATH.Length"
           call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
+          echo VCToolsInstallDir=%VCToolsInstallDir%
+          echo PATH length after: & powershell -NoProfile -Command "$env:PATH.Length"
+          where cl
           mkdir build-test
           cd build-test
           qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
