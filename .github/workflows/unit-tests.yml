@@ -11,6 +11,7 @@ on:
     paths:
       - 'src/**'
       - '.github/workflows/unit-tests.yml'
+      - '.github/scripts/**'
 
 permissions:
   contents: read
