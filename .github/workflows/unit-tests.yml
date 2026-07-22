@@ -86,19 +86,41 @@ jobs:
       # default branch) still targets Node.js 20, which GitHub Actions now
       # runs forced onto Node 24 with a deprecation warning; there's no
       # node24 release to bump to. Set up the MSVC environment directly
-      # instead: vswhere locates the VS install (its path is not assumed
-      # to be a fixed "2022\Enterprise"-style path, since that has already
-      # varied across runner images), then vcvars64.bat is called in the
-      # same step as qmake/nmake so the resulting environment doesn't need
-      # to cross a step boundary.
+      # instead, replicating what that action actually does under the
+      # hood (proven to work on this exact runner): call vcvarsall.bat in
+      # a plain "cmd /c" subshell, diff its "set" output against a
+      # before-snapshot to find just the variables it changed, and apply
+      # those to this step's own environment. This is more robust than
+      # simply "call"-ing vcvarsall.bat inline, which left
+      # VCToolsInstallDir unset here even though vcvarsall.bat reported
+      # success -- some part of its own environment-propagation logic
+      # doesn't survive being invoked from within a nested CALL.
       - name: Build unit tests (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          for /f "usebackq tokens=*" %%i in (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          echo VCToolsInstallDir=%VCToolsInstallDir%
-          where cl
+          $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvarsall = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
+
+          $before = cmd /c "set"
+          $after  = cmd /c "call `"$vcvarsall`" x64 >nul && set"
+
+          $beforeMap = @{}
+          foreach ($line in $before) {
+            if ($line -match '^([^=]+)=(.*)$') { $beforeMap[$Matches[1]] = $Matches[2] }
+          }
+          foreach ($line in $after) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $name = $Matches[1]; $value = $Matches[2]
+              if ($beforeMap[$name] -ne $value) {
+                [System.Environment]::SetEnvironmentVariable($name, $value)
+              }
+            }
+          }
+
+          Write-Host "VCToolsInstallDir=$env:VCToolsInstallDir"
+          where.exe cl
+
           mkdir build-test
           cd build-test
           qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
