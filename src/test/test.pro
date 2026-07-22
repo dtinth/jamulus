@@ -45,7 +45,8 @@ INCLUDEPATH += ..
 
 HEADERS += ../global.h \
     ../protocol.h \
-    ../util.h
+    ../util.h \
+    protocoltester.h
 
 SOURCES += ../protocol.cpp \
     ../util.cpp \
