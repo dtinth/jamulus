@@ -15,42 +15,61 @@
 
 /* Protocol test helpers ******************************************************/
 
-// Builds a raw protocol frame byte by byte, independently of the production
-// code in GenMessageFrame, so that the tests pin the on-wire format:
-// TAG (2), ID (2), cnt (1), length (2), data (n), CRC (2), values little endian
-inline CVector<uint8_t> GenTestFrame ( const int iCnt, const int iID, const CVector<uint8_t>& vecbyBody )
+// Runs Action on a fresh CProtocol instance and returns the single raw frame
+// it hands to MessReadyForSending. "Fresh" matters: the frame counter (cnt)
+// starts at 0 and increments per message sent on an instance, so this is what
+// makes the result byte-for-byte deterministic (relied on by the golden frame
+// tests in tst_protocol.cpp).
+template<typename ActionT>
+inline CVector<uint8_t> SendAndCaptureFrame ( ActionT Action )
 {
-    const int iBodyLen = vecbyBody.Size();
+    CProtocol        Sender;
+    CVector<uint8_t> vecbyFrame;
 
-    CVector<uint8_t> vecbyFrame ( MESS_LEN_WITHOUT_DATA_BYTE + iBodyLen );
+    QObject::connect ( &Sender, &CProtocol::MessReadyForSending, [&vecbyFrame] ( CVector<uint8_t> vecMessage ) { vecbyFrame = vecMessage; } );
 
-    vecbyFrame[0] = 0; // TAG (2 bytes, all zero)
-    vecbyFrame[1] = 0;
-    vecbyFrame[2] = static_cast<uint8_t> ( iID & 0xFF ); // ID (2 bytes)
-    vecbyFrame[3] = static_cast<uint8_t> ( ( iID >> 8 ) & 0xFF );
-    vecbyFrame[4] = static_cast<uint8_t> ( iCnt & 0xFF );     // cnt (1 byte)
-    vecbyFrame[5] = static_cast<uint8_t> ( iBodyLen & 0xFF ); // length (2 bytes)
-    vecbyFrame[6] = static_cast<uint8_t> ( ( iBodyLen >> 8 ) & 0xFF );
+    Action ( Sender );
+
+    return vecbyFrame;
+}
+
+// keeps vecbyFrame's TAG/CNT bytes but overwrites its ID and body (rewriting
+// the length field and recomputing the CRC so the result is still a well
+// formed *frame* even though the *body* deliberately might not be) -- for
+// testing how CProtocol::ParseMessageBody() reacts to malformed bodies, as
+// opposed to malformed frames (see RejectInvalidMessageBody()/
+// IgnoreAcknWithEmptyBody() in tst_protocol.cpp)
+inline void ReplaceIdAndBody ( CVector<uint8_t>& vecbyFrame, const int iID, const CVector<uint8_t>& vecbyNewBody )
+{
+    const int        iBodyLen = vecbyNewBody.Size();
+    CVector<uint8_t> vecbyNewFrame ( MESS_LEN_WITHOUT_DATA_BYTE + iBodyLen );
+
+    vecbyNewFrame[0] = vecbyFrame[0]; // TAG, unchanged
+    vecbyNewFrame[1] = vecbyFrame[1];
+    vecbyNewFrame[2] = static_cast<uint8_t> ( iID & 0xFF ); // ID, overwritten
+    vecbyNewFrame[3] = static_cast<uint8_t> ( ( iID >> 8 ) & 0xFF );
+    vecbyNewFrame[4] = vecbyFrame[4]; // CNT, unchanged
+    vecbyNewFrame[5] = static_cast<uint8_t> ( iBodyLen & 0xFF );
+    vecbyNewFrame[6] = static_cast<uint8_t> ( ( iBodyLen >> 8 ) & 0xFF );
 
     for ( int i = 0; i < iBodyLen; i++ )
     {
-        vecbyFrame[MESS_HEADER_LENGTH_BYTE + i] = vecbyBody[i];
+        vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + i] = vecbyNewBody[i];
     }
 
-    // CRC (2 bytes) over header plus body
+    // recompute the CRC over the new header+body content
     CCRC CRCObj;
 
     for ( int i = 0; i < MESS_HEADER_LENGTH_BYTE + iBodyLen; i++ )
     {
-        CRCObj.AddByte ( vecbyFrame[i] );
+        CRCObj.AddByte ( vecbyNewFrame[i] );
     }
 
-    const uint32_t iCRC = CRCObj.GetCRC();
+    const uint32_t iCRC                                   = CRCObj.GetCRC();
+    vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen]     = static_cast<uint8_t> ( iCRC & 0xFF );
+    vecbyNewFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen + 1] = static_cast<uint8_t> ( ( iCRC >> 8 ) & 0xFF );
 
-    vecbyFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen]     = static_cast<uint8_t> ( iCRC & 0xFF );
-    vecbyFrame[MESS_HEADER_LENGTH_BYTE + iBodyLen + 1] = static_cast<uint8_t> ( ( iCRC >> 8 ) & 0xFF );
-
-    return vecbyFrame;
+    vecbyFrame = vecbyNewFrame;
 }
 
 inline QByteArray ToByteArray ( const CVector<uint8_t>& vecbyData )
@@ -224,18 +243,12 @@ public:
 
     /* frame contract family ------------------------------------------------ */
 
-    // a well formed frame with a 4 byte body, same shape as the frames the
-    // round trip family produces; GenTestFrame() (declared above) stays the
-    // single authority for the actual on-wire byte layout
+    // a real, production generated well formed frame -- see
+    // SendAndCaptureFrame() above; which message it is doesn't matter here,
+    // only that it is a genuine, valid frame to mutate below
     CProtocolTester& validFrame()
     {
-        CVector<uint8_t> vecbyBody ( 4 );
-        vecbyBody[0] = 0x11;
-        vecbyBody[1] = 0x22;
-        vecbyBody[2] = 0x33;
-        vecbyBody[3] = 0x44;
-
-        m_vecbyFrame = GenTestFrame ( 0, PROTMESSID_CHAT_TEXT, vecbyBody );
+        m_vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "frame contract test" ) ); } );
         return *this;
     }
 
@@ -276,6 +289,11 @@ public:
     }
 
     bool isAccepted() const { return !isRejected(); }
+
+    // the raw bytes built up by validFrame() and its mutators, for tests that
+    // need the bytes themselves (e.g. as a QTest data row) rather than a
+    // pass/fail verdict
+    const CVector<uint8_t>& frame() const { return m_vecbyFrame; }
 
 private:
     CProtocolTester& record ( const QSignalSpy& Spy, const QVariantList& ExpectedArgs, const int iToleranceArgIdx = -1 )

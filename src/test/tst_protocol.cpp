@@ -18,6 +18,17 @@ class CTestProtocol : public QObject
     Q_OBJECT
 
 private slots:
+    // On-wire compatibility contract: fixed hex literals of what production
+    // emits TODAY for a representative message of each shape (a plain
+    // message, a connection-based one with a short body, one with a
+    // variable-length body, and a connection-less one). If any of these
+    // ever fail, the wire format changed -- that must never happen silently,
+    // so the literal only gets updated as a deliberate, reviewed decision.
+    void GoldenFrameJitBufSize();
+    void GoldenFrameClientID();
+    void GoldenFrameChatText();
+    void GoldenFrameCLPing();
+
     // ParseMessageFrame contract
     void ParseValidFrame();
     void RejectInvalidFrame_data();
@@ -53,60 +64,99 @@ private slots:
     void RejectInvalidMessageBody();
 };
 
+void CTestProtocol::GoldenFrameJitBufSize()
+{
+    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 5 ); } );
+
+    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 0a 00 00 02 00 05 00 5e 06" ) );
+}
+
+void CTestProtocol::GoldenFrameClientID()
+{
+    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 7 ); } );
+
+    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 20 00 00 01 00 07 1e bc" ) );
+}
+
+void CTestProtocol::GoldenFrameChatText()
+{
+    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateChatTextMes ( QStringLiteral ( "Hi" ) ); } );
+
+    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 12 00 00 04 00 02 00 48 69 4a 2c" ) );
+}
+
+void CTestProtocol::GoldenFrameCLPing()
+{
+    CProtocol        Sender;
+    CVector<uint8_t> vecbyFrame;
+
+    QObject::connect ( &Sender, &CProtocol::CLMessReadyForSending, [&vecbyFrame] ( CHostAddress, CVector<uint8_t> vecMessage ) {
+        vecbyFrame = vecMessage;
+    } );
+
+    // connection less messages don't depend on a CProtocol instance's send
+    // counter (it's zero by definition, see CreateAndImmSendConLessMessage()
+    // in protocol.cpp), so unlike the other three golden frames above, a
+    // freshly constructed CProtocol isn't actually load-bearing for
+    // determinism here -- kept anyway for consistency with the others.
+    Sender.CreateCLPingMes ( CHostAddress ( QHostAddress ( "203.0.113.42" ), 22124 ), 12345 );
+
+    QCOMPARE ( ToByteArray ( vecbyFrame ).toHex ( ' ' ), QByteArray ( "00 00 e9 03 00 04 00 39 30 00 00 54 7a" ) );
+}
+
 void CTestProtocol::ParseValidFrame()
 {
-    CVector<uint8_t> vecbyBody ( 4 );
-    vecbyBody[0] = 0x11;
-    vecbyBody[1] = 0x22;
-    vecbyBody[2] = 0x33;
-    vecbyBody[3] = 0x44;
-
-    const CVector<uint8_t> vecbyFrame = GenTestFrame ( 33, PROTMESSID_CHAT_TEXT, vecbyBody );
+    // pure ParseMessageFrame() header-decode contract: does it recover the
+    // counter (0 -- a fresh CProtocol's very first message) and ID of a
+    // genuine, valid production frame. Whether the ID's *body* subsequently
+    // evaluates to the right value is the round trip family's job; whether
+    // the frame's exact *bytes* are the ones production is contractually
+    // required to keep emitting is the golden frame tests' job above.
+    const CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateClientIDMes ( 42 ); } );
 
     CVector<uint8_t> vecbyMesBodyData;
-    int              iRecCounter = 0;
-    int              iRecID      = 0;
+    int              iRecCounter = -1;
+    int              iRecID      = -1;
 
     QVERIFY ( ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
-    QCOMPARE ( iRecCounter, 33 );
-    QCOMPARE ( iRecID, PROTMESSID_CHAT_TEXT );
-    QVERIFY ( vecbyMesBodyData == vecbyBody );
+    QCOMPARE ( iRecCounter, 0 );
+    QCOMPARE ( iRecID, PROTMESSID_CLIENT_ID );
 }
 
 void CTestProtocol::RejectInvalidFrame_data()
 {
     QTest::addColumn<QByteArray> ( "baFrame" );
 
-    CVector<uint8_t> vecbyBody ( 4 );
-    vecbyBody[0] = 1;
-    vecbyBody[1] = 2;
-    vecbyBody[2] = 3;
-    vecbyBody[3] = 4;
-
-    const QByteArray baValidFrame = ToByteArray ( GenTestFrame ( 0, PROTMESSID_CHAT_TEXT, vecbyBody ) );
+    // a real, production generated frame to mutate below (CProtocolTester's
+    // own validFrame()); its actual body length (rather than a hardcoded
+    // constant) drives the length-field mutations further down so this stays
+    // correct regardless of which message validFrame() happens to use
+    const QByteArray baValidFrame = ToByteArray ( CProtocolTester().validFrame().frame() );
+    const int        iBodyLen     = baValidFrame.size() - MESS_LEN_WITHOUT_DATA_BYTE;
 
     QTest::newRow ( "empty input" ) << QByteArray();
 
     QTest::newRow ( "shorter than minimum frame length" ) << baValidFrame.left ( MESS_LEN_WITHOUT_DATA_BYTE - 1 );
 
+    // no dedicated mutation helper for this one -- it's a single, one-off
+    // bit flip of the first header byte, not worth naming
     QByteArray baBadTag = baValidFrame;
-    baBadTag[0]         = static_cast<char> ( 0xFF );
+    baBadTag[0]         = static_cast<char> ( baBadTag[0] ^ 0xFF );
     QTest::newRow ( "invalid tag" ) << baBadTag;
 
-    QByteArray baBadCRC           = baValidFrame;
-    baBadCRC[baBadCRC.size() - 1] = static_cast<char> ( baBadCRC[baBadCRC.size() - 1] ^ 0xFF );
-    QTest::newRow ( "invalid CRC" ) << baBadCRC;
+    // the rest reuse CProtocolTester's own frame mutators (withBadCRC() etc.)
+    // via frame(), rather than duplicating that logic here
+    QTest::newRow ( "invalid CRC" ) << ToByteArray ( CProtocolTester().validFrame().withBadCRC().frame() );
 
-    QByteArray baLenTooLarge = baValidFrame;
-    baLenTooLarge[5]         = 5; // body is actually 4 bytes long
-    QTest::newRow ( "declared length larger than data" ) << baLenTooLarge;
+    QTest::newRow ( "declared length larger than data" )
+        << ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen + 1 ).frame() );
 
-    QByteArray baLenTooSmall = baValidFrame;
-    baLenTooSmall[5]         = 3; // body is actually 4 bytes long
-    QTest::newRow ( "declared length smaller than data" ) << baLenTooSmall;
+    QTest::newRow ( "declared length smaller than data" )
+        << ToByteArray ( CProtocolTester().validFrame().withDeclaredLength ( iBodyLen - 1 ).frame() );
 
-    QTest::newRow ( "frame truncated on the wire" ) << baValidFrame.left ( baValidFrame.size() - 2 );
+    QTest::newRow ( "frame truncated on the wire" ) << ToByteArray ( CProtocolTester().validFrame().truncatedBy ( 2 ).frame() );
 
+    // pure junk: no valid frame to mutate, so these two stay raw literals
     QTest::newRow ( "junk data" ) << QByteArray ( 50, static_cast<char> ( 0xA5 ) );
 
     // oversized junk with a valid tag so that the header decoding is reached
@@ -141,20 +191,51 @@ void CTestProtocol::RejectTruncatedFrame()
 
 void CTestProtocol::IgnoreAcknWithEmptyBody()
 {
+    // production always fills an ACKN frame's body with the 2 byte
+    // acknowledged message ID (see CProtocol::CreateAndImmSendAcknMess() in
+    // protocol.cpp), so there is no direct "call this and capture it" path to
+    // a real, empty bodied ACKN frame -- capture a real one (by letting a
+    // Peer instance auto-ACKN a received message, same as CChannel would),
+    // then reshape its body to empty. That is the actual edge case this
+    // regression targets: a well formed frame production never emits by
+    // itself (fixed in commit 024ebb47).
+    CVector<uint8_t> vecbyRealAcknFrame;
+    {
+        CProtocol Sender;
+        CProtocol Peer;
+
+        QObject::connect ( &Peer, &CProtocol::MessReadyForSending, [&vecbyRealAcknFrame] ( CVector<uint8_t> vecMessage ) {
+            vecbyRealAcknFrame = vecMessage;
+        } );
+
+        QObject::connect ( &Sender, &CProtocol::MessReadyForSending, [&Peer] ( CVector<uint8_t> vecMessage ) {
+            CVector<uint8_t> vecbyMesBodyData;
+            int              iRecCounter = 0;
+            int              iRecID      = 0;
+
+            QVERIFY ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) );
+
+            Peer.ParseMessageBody ( vecbyMesBodyData, iRecCounter, iRecID );
+        } );
+
+        Sender.CreateClientIDMes ( 1 ); // any message triggers Peer's auto-ACKN reply
+    }
+
+    CVector<uint8_t> vecbyEmptyBodyAckn = vecbyRealAcknFrame;
+    ReplaceIdAndBody ( vecbyEmptyBodyAckn, PROTMESSID_ACKN, CVector<uint8_t> ( 0 ) );
+
     CProtocol Receiver;
 
     int iNumSentMess = 0;
 
     QObject::connect ( &Receiver, &CProtocol::MessReadyForSending, [&iNumSentMess] ( CVector<uint8_t> ) { iNumSentMess++; } );
 
-    const CVector<uint8_t> vecbyFrame = GenTestFrame ( 5, PROTMESSID_ACKN, CVector<uint8_t> ( 0 ) );
-
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = 0;
     int              iRecID      = 0;
 
     // the frame itself is well formed and must parse successfully
-    QVERIFY ( ParseFrame ( vecbyFrame, vecbyMesBodyData, iRecCounter, iRecID ) );
+    QVERIFY ( ParseFrame ( vecbyEmptyBodyAckn, vecbyMesBodyData, iRecCounter, iRecID ) );
     QCOMPARE ( iRecID, PROTMESSID_ACKN );
     QCOMPARE ( vecbyMesBodyData.Size(), 0 );
 
@@ -423,9 +504,13 @@ void CTestProtocol::RejectInvalidMessageBody()
     QSignalSpy SpyGain ( &Receiver, SIGNAL ( ChangeChanGain ( int, float ) ) );
     QSignalSpy SpyChat ( &Receiver, SIGNAL ( ChatTextReceived ( QString ) ) );
 
-    // build a well formed frame around the invalid body so that the parsing
-    // reaches the body evaluation
-    const CVector<uint8_t> vecbyFrame = GenTestFrame ( 0, iID, FromByteArray ( baBody ) );
+    // build a well formed frame around the invalid body (which production
+    // would never generate itself -- that's the point) so that the parsing
+    // reaches the body evaluation; the base frame just needs to be *a* real,
+    // valid frame, its own message/ID/body are irrelevant since
+    // ReplaceIdAndBody() overwrites both
+    CVector<uint8_t> vecbyFrame = SendAndCaptureFrame ( [] ( CProtocol& p ) { p.CreateJitBufMes ( 0 ); } );
+    ReplaceIdAndBody ( vecbyFrame, iID, FromByteArray ( baBody ) );
 
     CVector<uint8_t> vecbyMesBodyData;
     int              iRecCounter = 0;

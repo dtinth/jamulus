@@ -251,7 +251,7 @@ jobs:
           # file; passing any -o at all replaces QtTest's implicit default
           # logger, so the stdout one has to be requested explicitly here.
           ./build-test/jamulus-test -o -,txt -o test-results.xml,$JUNIT_FORMAT | tee test-output.txt
-          grep -q 'Totals: 42 passed' test-output.txt
+          grep -q 'Totals: 46 passed' test-output.txt
 
       # gcda/gcno files land next to the .o files inside build-test/ (test.pro
       # doesn't set OBJECTS_DIR, so out-of-tree still means "flat inside the
@@ -306,9 +306,9 @@ jobs:
           build-test\jamulus-test.exe -o test-output.txt,txt -o test-results.xml,%JUNIT_FORMAT%
           set EXE_EXITCODE=%ERRORLEVEL%
           type test-output.txt
-          findstr /C:"Totals: 42 passed" test-output.txt > nul
+          findstr /C:"Totals: 46 passed" test-output.txt > nul
           if errorlevel 1 (
-            echo ##[error]Expected 'Totals: 42 passed' not found in captured test output
+            echo ##[error]Expected 'Totals: 46 passed' not found in captured test output
             exit /b 1
           )
           if not "%EXE_EXITCODE%"=="0" (
