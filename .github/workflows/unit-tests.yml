@@ -74,10 +74,6 @@ jobs:
           version: ${{ env.QT_VERSION }}
           cache: true
 
-      - name: Set up MSVC environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-
       - name: Build unit tests (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -86,10 +82,21 @@ jobs:
           ${{ matrix.config.qmake }} ../src/test/test.pro
           make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
 
+      # ilammy/msvc-dev-cmd (its latest release and even its unreleased
+      # default branch) still targets Node.js 20, which GitHub Actions now
+      # runs forced onto Node 24 with a deprecation warning; there's no
+      # node24 release to bump to. Set up the MSVC environment directly
+      # instead: vswhere locates the VS install (its path is not assumed
+      # to be a fixed "2022\Enterprise"-style path, since that has already
+      # varied across runner images), then vcvars64.bat is called in the
+      # same step as qmake/nmake so the resulting environment doesn't need
+      # to cross a step boundary.
       - name: Build unit tests (Windows)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
+          for /f "usebackq tokens=*" %%i in (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
           mkdir build-test
           cd build-test
           qmake ..\src\test\test.pro "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=."
