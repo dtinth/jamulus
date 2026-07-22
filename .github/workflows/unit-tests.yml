@@ -95,10 +95,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for /f "usebackq tokens=*" %%i in (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          for /f "usebackq tokens=*" %%i in ("%VSINSTALLDIR%\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt") do set "VCTOOLSVER=%%i"
-          echo VSINSTALLDIR=%VSINSTALLDIR% VCTOOLSVER=%VCTOOLSVER%
-          call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=%VCTOOLSVER%
+          for /f "usebackq tokens=*" %%i in (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsall.bat" x64
           echo VCToolsInstallDir=%VCToolsInstallDir%
           where cl
           mkdir build-test
