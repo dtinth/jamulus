@@ -48,6 +48,16 @@ jobs:
             xcode_version: 16.3.0
             qmake: qmake
             qmake_config: headless
+            # macos-15 runners are Apple Silicon (arm64) hosts, but qmake's
+            # default arch detection with this aqt-installed Qt otherwise
+            # tries to also build Opus's x86 SSE sources (clang then
+            # rejects -msse for an arm64 target). Force a single-arch
+            # arm64 build, same idea as mac/deploy_mac.sh's own
+            # QT_ARCH/QMAKE_APPLE_DEVICE_ARCHS overrides (it defaults to
+            # x86_64 unless TARGET_ARCHS says otherwise; the real autobuild
+            # workflow passes TARGET_ARCHS="x86_64 arm64" for universal
+            # release binaries, which this smoke test doesn't need).
+            qmake_extra_args: "QT_ARCH=arm64 QMAKE_APPLE_DEVICE_ARCHS=arm64"
             # No JACK: this build uses the default CoreAudio backend (no
             # CONFIG+=jackonmac), so the smoke test must not try to start
             # a jackd it doesn't need.
@@ -160,19 +170,36 @@ jobs:
           $jackUrl = "https://github.com/jackaudio/jack2-releases/releases/download/v${env:JACK_VERSION}/jack2-win64-v${env:JACK_VERSION}.exe"
           $installer = "$env:RUNNER_TEMP\jack2-win64.exe"
           Invoke-WebRequest -Uri $jackUrl -OutFile $installer
+          Write-Host "Downloaded installer size: $((Get-Item $installer).Length) bytes"
           Start-Process -Wait $installer -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
-          $jackBin = "C:\Program Files\JACK2\bin"
-          if (-not (Test-Path $jackBin)) {
-            throw "JACK2 install did not produce expected directory: $jackBin"
+
+          # Jamulus.pro's own jackonwindows check looks for
+          # "$programfilesdir/JACK2/include/jack/jack.h" -- use the same
+          # marker as our install-succeeded gate, rather than guessing at
+          # a bin/ layout that may not match the installer's actual output.
+          $jackHeader = "C:\Program Files\JACK2\include\jack\jack.h"
+          if (-not (Test-Path $jackHeader)) {
+            Write-Host "::error::JACK2 install did not produce expected header: $jackHeader"
+            Write-Host "Contents of C:\Program Files (recursive, top 200 entries):"
+            Get-ChildItem -Path "C:\Program Files" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 200 -ExpandProperty FullName
+            throw "JACK2 installation failed or used an unexpected layout"
           }
-          Add-Content -Path $env:GITHUB_PATH -Value $jackBin
+
+          $jackdExe = Get-ChildItem -Path "C:\Program Files\JACK2" -Filter "jackd.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $jackdExe) {
+            Write-Host "::error::jackd.exe not found anywhere under C:\Program Files\JACK2"
+            Get-ChildItem -Path "C:\Program Files\JACK2" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+            throw "jackd.exe missing from JACK2 installation"
+          }
+          Write-Host "Found jackd.exe: $($jackdExe.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $jackdExe.DirectoryName
 
       - name: Build Jamulus (Unix)
         if: runner.os != 'Windows'
         run: |
           mkdir build
           cd build
-          ${{ matrix.config.qmake }} ../Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}"
+          ${{ matrix.config.qmake }} ../Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}" ${{ matrix.config.qmake_extra_args }}
           make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
 
       # Same MSVC-environment bootstrap as unit-tests.yml's "Build unit
