@@ -105,25 +105,21 @@ jobs:
           ./build-test/jamulus-test | tee test-output.txt
           grep -q 'Totals: 41 passed' test-output.txt
 
-      # The test suite's stdout was getting lost here regardless of shell:
-      # both cmd's plain invocation and pwsh's pipe/redirection operators
-      # (Tee-Object, *>) go through an async .NET reader over the child
-      # process's handles, which can race a fast-exiting process and drop
-      # its final buffered output. cmd's own "> file" redirection is a
-      # genuine OS-level handle hand-off (no managed reader involved), so
-      # it captures reliably; findstr then gates on the same "Totals:"
-      # summary line as the Unix jobs to prove the suite actually ran.
+      # The test suite's own stdout came back completely empty here (0
+      # bytes) no matter how it was captured -- cmd redirection, pwsh
+      # Tee-Object, pwsh *> -- even though the exe demonstrably ran (exit
+      # code 0, ~50ms). Rather than continue to chase whichever console/
+      # pipe layer is eating the writes on this runner, sidestep the
+      # process's stdout stream entirely: QTest's own "-o file,txt" option
+      # makes it write its plain-text report straight to a file via Qt's
+      # file I/O, independent of the console/output-handle machinery.
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          dir build-test\jamulus-test.exe
-          build-test\jamulus-test.exe > test-output.txt 2>&1
+          build-test\jamulus-test.exe -o test-output.txt,txt
           set EXE_EXITCODE=%ERRORLEVEL%
-          echo EXE_EXITCODE=%EXE_EXITCODE%
-          dir test-output.txt
           type test-output.txt
-          echo ---end of captured output---
           findstr /C:"Totals: 41 passed" test-output.txt > nul
           if errorlevel 1 (
             echo ##[error]Expected 'Totals: 41 passed' not found in captured test output
