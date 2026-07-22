@@ -255,3 +255,143 @@ one-liners handle comfortably across repeated polls, and Python's stdlib
    semantic versioning? (It's still the best signal available today, but
    worth flagging since a CI process might now implicitly depend on Q4/Q5
    sub-fields it exposes.)
+
+## CI follow-up: all three platforms green
+
+The spike above was wired into real CI as `.github/workflows/smoke-test.yml`
+on this branch, targeting Linux, macOS and Windows in one matrix (same
+house style as `unit-tests.yml`: SHA-pinned non-GitHub actions,
+aqtinstall for Qt on macOS/Windows, the Xcode pin, the vcvarsall-diff
+MSVC bootstrap). Each job builds a headless Jamulus **in-job** before
+running `tools/smoke-test.py`. Final result after 3 fix iterations:
+**all three jobs pass**, run
+[29933941324](https://github.com/dtinth/jamulus/actions/runs/29933941324).
+
+### Per-platform outcome
+
+| Platform | Job duration | Build phase | Smoke-test verify | Notes |
+| --- | --- | --- | --- | --- |
+| Linux (Qt 6, `qmake6`, distro packages) | 1m13s | ~40s | 0.79s | Green on the *first* attempt, no fixes needed. |
+| macOS (Qt 6, aqtinstall, CoreAudio) | 1m37s | ~55s | 1.34s | Needed 2 fixes (arch, then a build-flag workaround) -- see below. |
+| Windows (Qt 6, MSVC, JACK) | 5m22s | ~3m53s | 5.55s | Needed 2 fixes (JACK-install detection, then a build-flag workaround) -- see below. |
+
+("Build phase" = `qmake` + `make`/`nmake` wall-clock, measured from CI
+job logs; "smoke-test verify" = the time `tools/smoke-test.py` itself
+reports until both sides confirm `connected`, i.e. the same number the
+original spike measured locally on Linux -- it lines up almost exactly
+with the ~0.87s measured there. Windows' longer verify time is most
+likely JACK/process startup overhead on that runner, not anything
+protocol-related.)
+
+### What each platform actually needed
+
+**Linux**: nothing beyond the original spike's recipe (`qt6-base-dev
+qt6-l10n-tools pkg-config jackd2 libjack-jackd2-dev`, `CONFIG+=headless`,
+JACK dummy driver). Confirms the spike's local findings transfer
+directly to a real GitHub-hosted runner.
+
+**macOS — sound backend**: the default **CoreAudio** backend (no
+`CONFIG+=jackonmac`) was used, i.e. no JACK/Homebrew involved at all, and
+the smoke test runs with `--skip-jackd`. This is the simpler of the two
+options flagged in the follow-up task. Getting there took two rounds:
+1. `qmake`'s default arch handling tried to build Opus's x86 SSE sources
+   for an arm64 target (macos-15 runners are Apple Silicon) --
+   `clang: error: unsupported option '-msse' for target
+   'arm64-apple-darwin24.6.0'`. Fixed by forcing a single-arch arm64
+   build (`QT_ARCH=arm64 QMAKE_APPLE_DEVICE_ARCHS=arm64`), the same idea
+   `mac/deploy_mac.sh` already uses (it defaults to x86_64 unless
+   `TARGET_ARCHS` says otherwise).
+2. With arch fixed, hit a genuine **upstream gap**: `src/sound/
+   coreaudio-mac/sound.h` unconditionally `#include <QMessageBox>` --
+   not gated behind any headless check, and the symbol is never actually
+   used anywhere in that file (confirmed by grep). So a plain
+   `CONFIG+=headless` build cannot compile on macOS *at all* today,
+   headless or not, JACK or not -- this code path had apparently never
+   been exercised before. Worked around in CI with `QT+=widgets` (linked
+   but never invoked at runtime, so no real GUI/display dependency is
+   introduced). **The correct fix belongs upstream: delete that unused
+   include.**
+
+**Windows — ASIO story**: did **not** use ASIO at all.
+`CONFIG+=jackonwindows` was used instead, downloading and silently
+installing the official JACK2 Windows release (same URL pattern and
+installer flags as `.github/autobuild/windows.ps1`'s own `jackonwindows`
+variant) rather than fetching the ASIO SDK from Steinberg -- there is no
+real ASIO hardware driver to exercise on a CI runner anyway, and
+avoiding the SDK download sidesteps its licensing caveats entirely for
+this use case. Two rounds to green:
+1. First attempt's readiness check looked for a `bin\` directory under
+   `C:\Program Files\JACK2` that doesn't match the installer's actual
+   output layout, even though the install itself succeeded. Fixed by
+   checking for the same marker `Jamulus.pro`'s own `jackonwindows` logic
+   checks for (`include\jack\jack.h`), and locating `jackd.exe` by
+   recursive search instead of assuming a path.
+2. With JACK2 actually detected and linked, hit a second genuine
+   **upstream gap**: `src/main.cpp`'s `#ifdef _WIN32` block
+   unconditionally calls `QApplication::applicationDirPath()` to set up
+   the Qt plugin search path, but the file only
+   `#include <QApplication>` `#ifndef HEADLESS` -- so `QApplication` is
+   an undefined type in a headless Windows build
+   (`error C2027: use of undefined type 'QApplication'`). Worked around
+   in CI with an MSVC force-include (`QMAKE_CXXFLAGS+=/FIQApplication`)
+   plus `QT+=widgets` to make the header resolvable. **The correct fix
+   belongs upstream: call `QCoreApplication::applicationDirPath()`
+   instead** -- that's a `QCoreApplication` static method, inherited by
+   `QApplication` but requiring no GUI module at all, and
+   `<QCoreApplication>` is already included unconditionally at the top
+   of the file.
+
+Both upstream gaps point at the same underlying story: `CONFIG+=headless`
+has clearly been built and run on Linux (that's the `jamulus-headless`
+Debian package), but this spike is likely the first time anyone has
+actually tried a **headless build on macOS or Windows**. Both fixes are
+one-liners (delete an unused include; swap one static-method call), but
+they're genuine product source changes, not CI/build-script changes, so
+they were deliberately left as build-flag workarounds on this branch
+rather than patched here -- flagged clearly in the workflow's own
+comments and here for a human to decide whether/how to fix upstream.
+
+### Script design notes (cross-platform merge)
+
+- `tools/smoke-test.py` uses `subprocess.Popen(..., start_new_session=True)`
+  on POSIX (own process group, killed via `os.killpg`) and
+  `CREATE_NEW_PROCESS_GROUP` + `taskkill /PID <pid> /T /F` on Windows
+  (kills the whole process tree, since `.terminate()` alone only signals
+  the immediate child and JACK/Jamulus don't reliably clean up
+  grandchildren on their own). Verified no leaked `Jamulus`/`jackd`
+  processes locally after both pass and fail runs; CI job logs likewise
+  show clean "Complete job" steps with no hung processes needing manual
+  cancellation.
+- `shutil.which("jack_lsp")` transparently resolves to `jack_lsp.exe` on
+  Windows (via `PATHEXT`), so the JACK-readiness probe needed no
+  Windows-specific branch.
+- The binary-location step (`find build -type f -name Jamulus` /
+  `Get-ChildItem -Filter Jamulus.exe -Recurse`) was written defensively
+  because it wasn't known in advance whether qmake would produce a plain
+  executable or (on macOS) an app bundle; in practice this headless
+  build produced a plain `build/Jamulus` binary on all three platforms
+  (no `.app` bundle), but the recursive search costs nothing and removes
+  the guesswork.
+
+### Updated CI-integration answers
+
+- **Build time vs. existing test jobs**: Linux build ~40s (matches the
+  original spike's local ~21s plus CI overhead), macOS ~55s, Windows
+  ~3m53s (MSVC + JACK2 install dominate). All three are cold-cache
+  numbers (no ccache/sccache, no Qt install cache hit) since this was
+  each job's first run; a warm Qt `actions/cache` hit (already wired up
+  in the workflow, same as `unit-tests.yml`) should cut the macOS/Windows
+  Qt-install portion substantially on repeat runs. Still meaningfully
+  more expensive than the project's ~30s unit-test jobs, Windows
+  especially -- a real rollout should budget for that, particularly if
+  run on every push/PR rather than only on releases.
+- **ccache**: not added in this pass (explicitly out of scope per the
+  task's "don't gold-plate" guidance) -- flagged as a good follow-up
+  given Opus recompiles from scratch every run.
+- **Cache implications**: the workflow already caches the aqtinstall Qt
+  download (`actions/cache`, macOS/Windows only, same key pattern as
+  `unit-tests.yml`); Linux's apt packages are not cached (apt itself is
+  fast enough on GitHub's Ubuntu images that this wasn't a bottleneck
+  here). JACK2's Windows installer download (~single-digit MB) is not
+  cached either -- a candidate for the same `DownloadCacheDir` pattern
+  `windows.ps1` already uses, if this becomes a real recurring job.
