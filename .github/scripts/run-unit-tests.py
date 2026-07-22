@@ -78,6 +78,12 @@ def msvc_environment():
     ).stdout.strip()
     vcvarsall = os.path.join ( vs_path, "VC", "Auxiliary", "Build", "vcvarsall.bat" )
 
+    # subprocess.run ( ..., shell=True ) on Windows already runs the string
+    # through "%COMSPEC% /c <string>" itself -- an earlier version of this
+    # also prefixed the string with a literal "cmd /c", which doubled up the
+    # cmd.exe nesting and silently swallowed vcvarsall.bat's effect on the
+    # "after" snapshot (before == after, so no variables were ever applied).
+    # Passing the raw command text is the fix.
     def snapshot ( cmd ):
         out = subprocess.run ( cmd, shell=True, capture_output=True, text=True ).stdout
         env = {}
@@ -87,8 +93,8 @@ def msvc_environment():
                 env[m.group ( 1 )] = m.group ( 2 )
         return env
 
-    before = snapshot ( "cmd /c set" )
-    after = snapshot ( 'cmd /c "call \\"{}\\" x64 >nul && set"'.format ( vcvarsall ) )
+    before = snapshot ( "set" )
+    after = snapshot ( 'call "{}" x64 >nul && set'.format ( vcvarsall ) )
 
     return { name: value for name, value in after.items() if before.get ( name ) != value }
 
