@@ -35,6 +35,12 @@ DEFINES += APP_VERSION=\\\"unittest\\\" \
     HAVE_STDINT_H \
     QT_NO_DEPRECATED_WARNINGS
 
+# same as in Jamulus.pro: prevent the windows.h min/max macros from breaking
+# std::min/std::max usage in the sources under test
+win32 {
+    DEFINES += NOMINMAX
+}
+
 INCLUDEPATH += ..
 
 HEADERS += ../global.h \

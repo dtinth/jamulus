@@ -16,9 +16,11 @@ permissions:
   contents: read
 
 env:
-  # Qt version installed via install-qt-action on macOS and Windows.
+  # Qt version installed via install-qt-action on macOS and Windows. This
+  # matches the Qt 6 version used by the autobuild workflow; note that older
+  # 6.8.x headers do not compile with the Xcode 26 toolchain on macos-latest.
   # Linux jobs use the distro Qt packages instead (see matrix below).
-  QT_VERSION: 6.8.3
+  QT_VERSION: 6.10.2
 
 jobs:
   unit-tests:
