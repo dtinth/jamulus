@@ -24,6 +24,10 @@ env:
   QT_VERSION: 6.10.2
   AQTINSTALL_VERSION: 3.3.0
 
+  # gcovr version used by the coverage job below (pinned the same way as
+  # AQTINSTALL_VERSION above, for the same reason: reproducible output).
+  GCOVR_VERSION: 8.6
+
 jobs:
   unit-tests:
     name: ${{ matrix.config.name }}
@@ -66,6 +70,21 @@ jobs:
             qmake_extra_args: >-
               QMAKE_CXXFLAGS+="-fsanitize=address,undefined"
               QMAKE_LFLAGS+="-fsanitize=address,undefined"
+
+          # Same Qt6/ubuntu-24.04 toolchain again, this time built with GCC's
+          # --coverage flag (gcov instrumentation compiled into protocol.o/
+          # util.o/tst_protocol.o) so a line/function/branch coverage report
+          # can be generated once the suite has run. The `coverage: true`
+          # field is only read by the two extra steps at the end of this job
+          # (Generate/Upload coverage report); every other step ignores it.
+          - name: Linux (Qt 6, coverage)
+            runs_on: ubuntu-24.04
+            qt_packages: qt6-base-dev
+            qmake: qmake6
+            coverage: true
+            qmake_extra_args: >-
+              QMAKE_CXXFLAGS+="--coverage"
+              QMAKE_LFLAGS+="--coverage"
 
     steps:
       - name: Checkout code
@@ -207,6 +226,39 @@ jobs:
         run: |
           ./build-test/jamulus-test | tee test-output.txt
           grep -q 'Totals: 42 passed' test-output.txt
+
+      # gcda/gcno files land next to the .o files inside build-test/ (test.pro
+      # doesn't set OBJECTS_DIR, so out-of-tree still means "flat inside the
+      # build dir"). --filter is anchored to "src/<single path segment>.cpp"
+      # so it only ever matches protocol.cpp/util.cpp directly under src/ --
+      # src/test/tst_protocol.cpp (an extra path segment) and the moc_*.cpp
+      # generated sources (which live under build-test/, not src/) are both
+      # excluded automatically without needing a separate --exclude.
+      # gcovr is run once, producing all three outputs the ticket asked for:
+      # an HTML report (uploaded as an artifact below), a per-file Markdown
+      # table (appended to the job summary), and the overall percentages
+      # (printed to the log via --print-summary).
+      - name: Generate coverage report
+        if: matrix.config.coverage
+        run: |
+          mkdir coverage-html
+          pipx run "gcovr==${{ env.GCOVR_VERSION }}" \
+            --root "$GITHUB_WORKSPACE" \
+            --filter "$GITHUB_WORKSPACE/src/[^/]+\.cpp$" \
+            --object-directory build-test \
+            --html-details coverage-html/index.html \
+            --markdown coverage-summary.md \
+            --print-summary
+          cat coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: matrix.config.coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html
+          path: coverage-html
+          retention-days: 31
+          if-no-files-found: error
 
       # The test suite's own stdout came back completely empty here (0
       # bytes) no matter how it was captured -- cmd redirection, pwsh
