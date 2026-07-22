@@ -106,15 +106,21 @@ jobs:
           grep -q 'Totals: 41 passed' test-output.txt
 
       # cmd's "CALL" wrapping around a console-subsystem exe silently
-      # swallowed the test suite's stdout here, so this uses pwsh and
-      # captures the output to a file (same "Totals:" gate as the Unix
-      # jobs) instead of relying on the exit code.
+      # swallowed the test suite's stdout here, so this uses pwsh instead.
+      # File redirection (*>) is used rather than piping through
+      # Tee-Object: piping reads the child process's output asynchronously
+      # through .NET, which can lose output that arrives in one buffered
+      # burst right before a fast-exiting process closes its stdout handle;
+      # ">"-style redirection hands the exe's stdout handle straight to the
+      # file at the OS level, so nothing can race it away. The same
+      # "Totals:" gate as the Unix jobs then proves the suite actually ran.
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & .\build-test\jamulus-test.exe | Tee-Object -FilePath test-output.txt
+          & .\build-test\jamulus-test.exe *> test-output.txt
           $exitCode = $LASTEXITCODE
+          Get-Content test-output.txt
           if ($exitCode -ne 0) {
             Write-Error "jamulus-test.exe exited with code $exitCode"
             exit $exitCode
