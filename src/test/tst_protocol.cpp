@@ -186,7 +186,7 @@ void CTestProtocol::RejectTruncatedFrame()
 {
     CProtocolTester tester;
 
-    QVERIFY ( tester.validFrame().truncatedBy ( 3 ).isRejected() );
+    QVERIFY2 ( tester.validFrame().truncatedBy ( 3 ).isRejected(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::IgnoreAcknWithEmptyBody()
@@ -260,7 +260,7 @@ void CTestProtocol::RoundTripJitBufSize()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.jitBufSize ( iJitBufSize ).roundTrips() );
+    QVERIFY2 ( tester.jitBufSize ( iJitBufSize ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripClientID_data()
@@ -278,7 +278,7 @@ void CTestProtocol::RoundTripClientID()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.clientID ( iChanID ).roundTrips() );
+    QVERIFY2 ( tester.clientID ( iChanID ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripChanGain_data()
@@ -300,7 +300,7 @@ void CTestProtocol::RoundTripChanGain()
     CProtocolTester tester;
 
     // the gain is quantized to 1 / 2^15 steps on the wire
-    QVERIFY ( tester.chanGain ( iChanID, fGain ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ) );
+    QVERIFY2 ( tester.chanGain ( iChanID, fGain ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripChanPan_data()
@@ -321,7 +321,7 @@ void CTestProtocol::RoundTripChanPan()
     CProtocolTester tester;
 
     // the pan is quantized to 1 / 2^15 steps on the wire
-    QVERIFY ( tester.chanPan ( iChanID, fPan ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ) );
+    QVERIFY2 ( tester.chanPan ( iChanID, fPan ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripMuteState_data()
@@ -340,7 +340,7 @@ void CTestProtocol::RoundTripMuteState()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.muteState ( iChanID, bIsMuted ).roundTrips() );
+    QVERIFY2 ( tester.muteState ( iChanID, bIsMuted ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripChatText_data()
@@ -357,7 +357,7 @@ void CTestProtocol::RoundTripChatText()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.chatText ( strChatText ).roundTrips() );
+    QVERIFY2 ( tester.chatText ( strChatText ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripNetwTranspProps()
@@ -404,7 +404,7 @@ void CTestProtocol::RoundTripLicenceRequired()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.licenceRequired ( static_cast<ELicenceType> ( iLicenceType ) ).roundTrips() );
+    QVERIFY2 ( tester.licenceRequired ( static_cast<ELicenceType> ( iLicenceType ) ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripRecorderState_data()
@@ -422,7 +422,7 @@ void CTestProtocol::RoundTripRecorderState()
 
     CProtocolTester tester;
 
-    QVERIFY ( tester.recorderState ( static_cast<ERecorderState> ( iRecorderState ) ).roundTrips() );
+    QVERIFY2 ( tester.recorderState ( static_cast<ERecorderState> ( iRecorderState ) ).roundTrips(), qPrintable ( tester.lastError() ) );
 }
 
 void CTestProtocol::RoundTripCLPing()
