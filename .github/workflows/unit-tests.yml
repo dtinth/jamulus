@@ -36,13 +36,19 @@ jobs:
       fail-fast: false
       matrix:
         config:
+          # `id` is a short, stable slug (no spaces/parens, unlike `name`)
+          # used for per-job artifact names (junit-<id>, see the "Upload
+          # JUnit XML" step below) so parallel matrix jobs never collide.
+          #
           # Oldest supported Qt line: distro Qt 5.15 proves the Qt >= 5.12
           # compatibility floor of the test suite.
           - name: Linux (Qt 5, ubuntu-22.04)
+            id: linux-qt5
             runs_on: ubuntu-22.04
             qt_packages: qtbase5-dev qt5-qmake
             qmake: qmake
           - name: Linux (Qt 6, ubuntu-24.04)
+            id: linux-qt6
             runs_on: ubuntu-24.04
             qt_packages: qt6-base-dev
             qmake: qmake6
@@ -50,10 +56,12 @@ jobs:
           # configuration; the Xcode 26 toolchain of newer images cannot
           # compile the Qt 6 headers yet (implicit __yield declaration error).
           - name: macOS (Qt 6)
+            id: macos-qt6
             runs_on: macos-15
             xcode_version: 16.3.0
             qmake: qmake
           - name: Windows (Qt 6, MSVC)
+            id: windows-qt6
             runs_on: windows-latest
             qmake: qmake
 
@@ -64,6 +72,7 @@ jobs:
           # below) rather than edited into test.pro, so no other job is
           # affected.
           - name: Linux (Qt 6, ASan/UBSan)
+            id: linux-qt6-asan
             runs_on: ubuntu-24.04
             qt_packages: qt6-base-dev
             qmake: qmake6
@@ -78,6 +87,7 @@ jobs:
           # field is only read by the two extra steps at the end of this job
           # (Generate/Upload coverage report); every other step ignores it.
           - name: Linux (Qt 6, coverage)
+            id: linux-qt6-coverage
             runs_on: ubuntu-24.04
             qt_packages: qt6-base-dev
             qmake: qmake6
@@ -212,7 +222,14 @@ jobs:
       # Output is captured to a file and grepped for the QtTest "Totals:"
       # summary line, so the job fails if the suite ever exits 0 without
       # actually having run its tests (rather than trusting the exit code
-      # alone).
+      # alone). QtTest supports multiple "-o file,format" loggers in the same
+      # run, so the existing plain text logger (still what the Totals: gate
+      # greps) gets a second junit-flavoured one alongside it for the
+      # "Summarize test results" step below. The format name QtTest uses for
+      # that flavour changed between Qt 5 and Qt 6 (5.15 calls it
+      # "xunitxml", 6.x renamed it "junitxml") -- rather than hardcode that
+      # by matrix.config.qmake, ask the binary itself via -help so this
+      # keeps working if the name changes again.
       - name: Run unit tests (Unix)
         if: runner.os != 'Windows'
         env:
@@ -224,7 +241,16 @@ jobs:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
-          ./build-test/jamulus-test | tee test-output.txt
+          JUNIT_FORMAT=junitxml
+          ./build-test/jamulus-test -help 2>&1 | grep -q junitxml || JUNIT_FORMAT=xunitxml
+          echo "Using QtTest JUnit logger format: $JUNIT_FORMAT"
+
+          # "-o -,txt" keeps the plain text report on stdout (so it still
+          # reaches the console and, via tee, test-output.txt for the grep
+          # below) alongside the new junit logger writing straight to its own
+          # file; passing any -o at all replaces QtTest's implicit default
+          # logger, so the stdout one has to be requested explicitly here.
+          ./build-test/jamulus-test -o -,txt -o test-results.xml,$JUNIT_FORMAT | tee test-output.txt
           grep -q 'Totals: 42 passed' test-output.txt
 
       # gcda/gcno files land next to the .o files inside build-test/ (test.pro
@@ -272,7 +298,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          build-test\jamulus-test.exe -o test-output.txt,txt
+          set JUNIT_FORMAT=junitxml
+          build-test\jamulus-test.exe -help | findstr /C:"junitxml" >nul
+          if errorlevel 1 set JUNIT_FORMAT=xunitxml
+          echo Using QtTest JUnit logger format: %JUNIT_FORMAT%
+
+          build-test\jamulus-test.exe -o test-output.txt,txt -o test-results.xml,%JUNIT_FORMAT%
           set EXE_EXITCODE=%ERRORLEVEL%
           type test-output.txt
           findstr /C:"Totals: 42 passed" test-output.txt > nul
@@ -284,3 +315,73 @@ jobs:
             echo ##[error]jamulus-test.exe exited with code %EXE_EXITCODE%
             exit /b %EXE_EXITCODE%
           )
+
+      # Zero-permission route: a python (stdlib only, no third party action)
+      # step parses the junit xml written by both Run unit tests steps above
+      # and appends a compact pass/fail table to the job summary. The
+      # alternative -- dorny/test-reporter or mikepenz/action-junit-report,
+      # which render much richer per-test annotations/check runs -- needs
+      # `checks: write` (dorny) or `pull-requests: write`/`checks: write`
+      # (mikepenz), neither of which this workflow's `permissions: contents:
+      # read` grants; widening that (and, for a fork PR's GITHUB_TOKEN,
+      # trusting a third-party action with it) was judged more than a test
+      # summary is worth, especially for a spike. `if: always()` so this
+      # (and the upload step below) still run -- and show what did get as
+      # far as being recorded -- even if the Totals: gate above failed.
+      - name: Summarize test results
+        if: always()
+        shell: python
+        env:
+          JOB_NAME: ${{ matrix.config.name }}
+        run: |
+          import os
+          import xml.etree.ElementTree as ET
+
+          path = "test-results.xml"
+          job_name = os.environ.get ( "JOB_NAME", "unit tests" )
+
+          with open ( os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8" ) as summary:
+              summary.write ( "### JUnit results: {}\n\n".format ( job_name ) )
+
+              if not os.path.exists ( path ):
+                  summary.write ( "_No test-results.xml was produced (the build or test run likely failed before it could be written)._\n\n" )
+              else:
+                  root = ET.parse ( path ).getroot()
+                  suites = [ root ] if root.tag == "testsuite" else list ( root.findall ( "testsuite" ) )
+
+                  summary.write ( "| Suite | Tests | Passed | Failed | Skipped | Time (s) |\n" )
+                  summary.write ( "|---|---|---|---|---|---|\n" )
+
+                  failures = []
+                  for suite in suites:
+                      tests   = int ( suite.get ( "tests", 0 ) )
+                      failed  = int ( suite.get ( "failures", 0 ) ) + int ( suite.get ( "errors", 0 ) )
+                      skipped = int ( suite.get ( "skipped", 0 ) )
+                      passed  = tests - failed - skipped
+                      status  = "PASS" if failed == 0 else "FAIL"
+                      summary.write ( "| {} {} | {} | {} | {} | {} | {} |\n".format (
+                          status, suite.get ( "name" ), tests, passed, failed, skipped, suite.get ( "time", "?" ) ) )
+
+                      for testcase in suite.findall ( "testcase" ):
+                          node = testcase.find ( "failure" )
+                          if node is None:
+                              node = testcase.find ( "error" )
+                          if node is not None:
+                              failures.append ( ( testcase.get ( "name" ), ( node.get ( "message" ) or "" ).strip() ) )
+
+                  if failures:
+                      summary.write ( "\n<details><summary>Failed tests</summary>\n\n" )
+                      for name, message in failures:
+                          summary.write ( "- `{}`: {}\n".format ( name, message ) )
+                      summary.write ( "\n</details>\n" )
+
+                  summary.write ( "\n" )
+
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-${{ matrix.config.id }}
+          path: test-results.xml
+          retention-days: 31
+          if-no-files-found: warn
