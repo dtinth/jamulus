@@ -1,0 +1,52 @@
+name: Windows stdout probe
+
+# Throwaway diagnostic workflow (see experiment/windows-stdout-probe branch).
+# Answers a single question: when jamulus-test.exe is launched via Python's
+# subprocess with piped stdout (capture_output=True), does the QtTest text
+# output actually arrive, or is it 0 bytes like it was with cmd/pwsh capture
+# methods? Not meant to be merged.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ experiment/windows-stdout-probe ]
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: 6.10.2
+  AQTINSTALL_VERSION: 3.3.0
+
+jobs:
+  probe:
+    name: Windows stdout probe
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Cache Qt (Windows)
+        uses: actions/cache@v6
+        with:
+          path: C:\Qt
+          key: windows-qt-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/unit-tests.yml') }}
+
+      - name: Install Qt (aqtinstall, Windows)
+        shell: pwsh
+        run: |
+          if (Test-Path -Path C:\Qt) {
+            Write-Host "Using Qt installation from previous run (actions/cache)"
+          } else {
+            pip install "aqtinstall==$env:AQTINSTALL_VERSION"
+            aqt install-qt --outputdir C:\Qt windows desktop $env:QT_VERSION win64_msvc2022_64 --archives qtbase
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
+
+      - name: Build unit tests
+        env:
+          QMAKE_BIN: qmake
+        run: python3 .github/scripts/run-unit-tests.py build
+
+      - name: Probe stdout capture behaviour
+        run: python3 .github/scripts/stdout-probe.py
