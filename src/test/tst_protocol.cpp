@@ -22,6 +22,7 @@ private slots:
     void ParseValidFrame();
     void RejectInvalidFrame_data();
     void RejectInvalidFrame();
+    void RejectTruncatedFrame();
 
     // regression test: a well formed ACKN frame with an empty body must be
     // ignored and must not crash (fixed in commit 024ebb47)
@@ -129,6 +130,15 @@ void CTestProtocol::RejectInvalidFrame()
     QVERIFY ( CProtocol::ParseMessageFrame ( vecbyFrame, vecbyFrame.Size(), vecbyMesBodyData, iRecCounter, iRecID ) );
 }
 
+// demonstrates the fluent frame builder for a case that reads better as prose
+// than as one more row in RejectInvalidFrame_data() above
+void CTestProtocol::RejectTruncatedFrame()
+{
+    CProtocolTester tester;
+
+    QVERIFY ( tester.validFrame().truncatedBy ( 3 ).isRejected() );
+}
+
 void CTestProtocol::IgnoreAcknWithEmptyBody()
 {
     CProtocol Receiver;
@@ -167,19 +177,9 @@ void CTestProtocol::RoundTripJitBufSize()
 {
     QFETCH ( int, iJitBufSize );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( ChangeJittBufSize ( int ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateJitBufMes ( iJitBufSize );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toInt(), iJitBufSize );
+    QVERIFY ( tester.jitBufSize ( iJitBufSize ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripClientID_data()
@@ -195,19 +195,9 @@ void CTestProtocol::RoundTripClientID()
 {
     QFETCH ( int, iChanID );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( ClientIDReceived ( int ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateClientIDMes ( iChanID );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toInt(), iChanID );
+    QVERIFY ( tester.clientID ( iChanID ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripChanGain_data()
@@ -226,23 +216,10 @@ void CTestProtocol::RoundTripChanGain()
     QFETCH ( int, iChanID );
     QFETCH ( float, fGain );
 
-    CProtocol Sender;
-    CProtocol Receiver;
-
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( ChangeChanGain ( int, float ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateChanGainMes ( iChanID, fGain );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toInt(), iChanID );
+    CProtocolTester tester;
 
     // the gain is quantized to 1 / 2^15 steps on the wire
-    const float fReceivedGain = Spy.at ( 0 ).at ( 1 ).toFloat();
-    QVERIFY ( qAbs ( fReceivedGain - fGain ) <= 1.0f / ( 1 << 15 ) );
+    QVERIFY ( tester.chanGain ( iChanID, fGain ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ) );
 }
 
 void CTestProtocol::RoundTripChanPan_data()
@@ -260,23 +237,10 @@ void CTestProtocol::RoundTripChanPan()
     QFETCH ( int, iChanID );
     QFETCH ( float, fPan );
 
-    CProtocol Sender;
-    CProtocol Receiver;
-
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( ChangeChanPan ( int, float ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateChanPanMes ( iChanID, fPan );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toInt(), iChanID );
+    CProtocolTester tester;
 
     // the pan is quantized to 1 / 2^15 steps on the wire
-    const float fReceivedPan = Spy.at ( 0 ).at ( 1 ).toFloat();
-    QVERIFY ( qAbs ( fReceivedPan - fPan ) <= 1.0f / ( 1 << 15 ) );
+    QVERIFY ( tester.chanPan ( iChanID, fPan ).roundTripsWithin ( 1.0f / ( 1 << 15 ) ) );
 }
 
 void CTestProtocol::RoundTripMuteState_data()
@@ -293,20 +257,9 @@ void CTestProtocol::RoundTripMuteState()
     QFETCH ( int, iChanID );
     QFETCH ( bool, bIsMuted );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( MuteStateHasChangedReceived ( int, bool ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateMuteStateHasChangedMes ( iChanID, bIsMuted );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toInt(), iChanID );
-    QCOMPARE ( Spy.at ( 0 ).at ( 1 ).toBool(), bIsMuted );
+    QVERIFY ( tester.muteState ( iChanID, bIsMuted ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripChatText_data()
@@ -321,19 +274,9 @@ void CTestProtocol::RoundTripChatText()
 {
     QFETCH ( QString, strChatText );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    QSignalSpy Spy ( &Receiver, SIGNAL ( ChatTextReceived ( QString ) ) );
-    QVERIFY ( Spy.isValid() );
-
-    Sender.CreateChatTextMes ( strChatText );
-
-    QCOMPARE ( Spy.count(), 1 );
-    QCOMPARE ( Spy.at ( 0 ).at ( 0 ).toString(), strChatText );
+    QVERIFY ( tester.chatText ( strChatText ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripNetwTranspProps()
@@ -378,24 +321,9 @@ void CTestProtocol::RoundTripLicenceRequired()
 {
     QFETCH ( int, iLicenceType );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    int iReceivedType = -1;
-    int iNumReceived  = 0;
-
-    QObject::connect ( &Receiver, &CProtocol::LicenceRequired, [&] ( ELicenceType eLicenceType ) {
-        iReceivedType = static_cast<int> ( eLicenceType );
-        iNumReceived++;
-    } );
-
-    Sender.CreateLicenceRequiredMes ( static_cast<ELicenceType> ( iLicenceType ) );
-
-    QCOMPARE ( iNumReceived, 1 );
-    QCOMPARE ( iReceivedType, iLicenceType );
+    QVERIFY ( tester.licenceRequired ( static_cast<ELicenceType> ( iLicenceType ) ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripRecorderState_data()
@@ -411,24 +339,9 @@ void CTestProtocol::RoundTripRecorderState()
 {
     QFETCH ( int, iRecorderState );
 
-    CProtocol Sender;
-    CProtocol Receiver;
+    CProtocolTester tester;
 
-    ConnectProtocols ( Sender, Receiver );
-    ConnectProtocols ( Receiver, Sender );
-
-    int iReceivedState = -1;
-    int iNumReceived   = 0;
-
-    QObject::connect ( &Receiver, &CProtocol::RecorderStateReceived, [&] ( ERecorderState eRecorderState ) {
-        iReceivedState = static_cast<int> ( eRecorderState );
-        iNumReceived++;
-    } );
-
-    Sender.CreateRecorderStateMes ( static_cast<ERecorderState> ( iRecorderState ) );
-
-    QCOMPARE ( iNumReceived, 1 );
-    QCOMPARE ( iReceivedState, iRecorderState );
+    QVERIFY ( tester.recorderState ( static_cast<ERecorderState> ( iRecorderState ) ).roundTrips() );
 }
 
 void CTestProtocol::RoundTripCLPing()

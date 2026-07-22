@@ -206,7 +206,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           ./build-test/jamulus-test | tee test-output.txt
-          grep -q 'Totals: 41 passed' test-output.txt
+          grep -q 'Totals: 42 passed' test-output.txt
 
       # The test suite's own stdout came back completely empty here (0
       # bytes) no matter how it was captured -- cmd redirection, pwsh
@@ -223,9 +223,9 @@ jobs:
           build-test\jamulus-test.exe -o test-output.txt,txt
           set EXE_EXITCODE=%ERRORLEVEL%
           type test-output.txt
-          findstr /C:"Totals: 41 passed" test-output.txt > nul
+          findstr /C:"Totals: 42 passed" test-output.txt > nul
           if errorlevel 1 (
-            echo ##[error]Expected 'Totals: 41 passed' not found in captured test output
+            echo ##[error]Expected 'Totals: 42 passed' not found in captured test output
             exit /b 1
           )
           if not "%EXE_EXITCODE%"=="0" (
