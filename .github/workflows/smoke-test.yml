@@ -1,0 +1,293 @@
+name: Smoke Test
+
+# NOTE: The triggers below are shaped for the verify/headless-fixes branch,
+# a one-off fork-CI check that the two headless build fixes (macOS
+# sound.h QMessageBox include removal, Windows main.cpp
+# QCoreApplication::applicationDirPath()) actually fix the build without
+# the CI-only workarounds this workflow originally carried. Before
+# upstreaming for real, reshape these to the usual pattern of the other
+# workflows in this repository (push + pull_request on main with the same
+# paths: filters), matching unit-tests.yml's own NOTE.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ verify/headless-fixes ]
+    paths:
+      - 'src/**'
+      - 'libs/**'
+      - 'Jamulus.pro'
+      - 'tools/smoke-test.py'
+      - '.github/workflows/smoke-test.yml'
+
+permissions:
+  contents: read
+
+env:
+  # Same Qt 6 version and aqtinstall pinning as unit-tests.yml / the
+  # autobuild workflow's macOS/Windows builds (.github/autobuild/mac.sh,
+  # windows.ps1). Linux uses the distro Qt packages instead (see matrix).
+  QT_VERSION: 6.10.2
+  AQTINSTALL_VERSION: 3.3.0
+  # Same JACK release used by the autobuild workflow's Windows JACK build
+  # (.github/autobuild/windows.ps1: $JackVersion) -- kept in sync manually,
+  # see .github/workflows/bump-dependencies.yml's "jack" entry.
+  JACK_VERSION: 1.9.22
+
+jobs:
+  smoke-test:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: Linux (Qt 6, JACK dummy)
+            runs_on: ubuntu-24.04
+            qmake: qmake6
+            qmake_config: headless
+            skip_jackd: false
+
+          - name: macOS (Qt 6, CoreAudio)
+            runs_on: macos-15
+            xcode_version: 16.3.0
+            qmake: qmake
+            qmake_config: headless
+            # macos-15 runners are Apple Silicon (arm64) hosts, but qmake's
+            # default arch detection with this aqt-installed Qt otherwise
+            # tries to also build Opus's x86 SSE sources (clang then
+            # rejects -msse for an arm64 target). Force a single-arch
+            # arm64 build, same idea as mac/deploy_mac.sh's own
+            # QT_ARCH/QMAKE_APPLE_DEVICE_ARCHS overrides (it defaults to
+            # x86_64 unless TARGET_ARCHS says otherwise; the real autobuild
+            # workflow passes TARGET_ARCHS="x86_64 arm64" for universal
+            # release binaries, which this smoke test doesn't need). This
+            # is an unrelated pre-existing quirk, not one of the two
+            # headless build bugs this branch verifies, so it stays.
+            #
+            # No QT+=widgets workaround here: fix/headless-macos-windows
+            # removes the unused QMessageBox include from
+            # src/sound/coreaudio-mac/sound.h, so a plain CONFIG+=headless
+            # build should compile on macOS without linking widgets at all.
+            qmake_extra_args: "QT_ARCH=arm64 QMAKE_APPLE_DEVICE_ARCHS=arm64"
+            # No JACK: this build uses the default CoreAudio backend (no
+            # CONFIG+=jackonmac), so the smoke test must not try to start
+            # a jackd it doesn't need.
+            skip_jackd: true
+
+          - name: Windows (Qt 6, MSVC, JACK)
+            runs_on: windows-latest
+            qmake: qmake
+            # jackonwindows avoids the ASIO SDK entirely (no real ASIO
+            # driver exists on a CI runner to exercise anyway) and reuses
+            # the same JACK "dummy" driver as the other two platforms.
+            qmake_config: "headless jackonwindows"
+            # No QT+=widgets / /FIQApplication force-include workaround
+            # here: fix/headless-macos-windows changes src/main.cpp's
+            # `#ifdef _WIN32` block to call
+            # QCoreApplication::applicationDirPath() instead of
+            # QApplication's, which needs no GUI module and is already
+            # unconditionally included -- so a plain CONFIG+=headless
+            # build should compile on Windows without any extra qmake
+            # args at all.
+            qmake_extra_args: ""
+            skip_jackd: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # ---------------------------------------------------------------
+      # Linux: distro Qt + JACK packages (same qt6-base-dev source as
+      # unit-tests.yml's Linux Qt6 job; qt6-l10n-tools additionally
+      # provides lrelease, required by Jamulus.pro's embed_translations
+      # feature even for a headless build; jackd2/libjack-jackd2-dev give
+      # us the JACK dummy driver + build-time jack.h/pkg-config file).
+      # ---------------------------------------------------------------
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq --no-install-recommends -y install \
+            qt6-base-dev qt6-l10n-tools pkg-config jackd2 libjack-jackd2-dev
+
+      # ---------------------------------------------------------------
+      # macOS: same Xcode pin as unit-tests.yml (newer Xcode's toolchain
+      # cannot compile the Qt 6 headers yet, see that workflow's comment).
+      # ---------------------------------------------------------------
+      - name: Select Xcode version
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.6.0
+        with:
+          xcode-version: ${{ matrix.config.xcode_version }}
+
+      - name: Cache Qt (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: ~/qt
+          key: macos-qt-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/smoke-test.yml') }}
+
+      - name: Cache Qt (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v6
+        with:
+          path: C:\Qt
+          key: windows-qt-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/smoke-test.yml') }}
+
+      # Same install mechanism as unit-tests.yml's macOS step, but with
+      # qttools/qttranslations added: the full Jamulus.pro (unlike
+      # src/test/test.pro) uses CONFIG += lrelease embed_translations,
+      # which needs qttools' lrelease at build time. qtmultimedia is
+      # intentionally NOT installed: Jamulus.pro only adds QT += multimedia
+      # in the non-headless (GUI) branch -- headless builds don't touch it
+      # (verified by reading Jamulus.pro), so skipping it saves an install.
+      - name: Install Qt (aqtinstall, macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d ~/qt ]; then
+            echo "Using Qt installation from previous run (actions/cache)"
+          else
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install "aqtinstall==${{ env.AQTINSTALL_VERSION }}"
+            python3 -m aqt install-qt --outputdir ~/qt mac desktop "${{ env.QT_VERSION }}" --archives qtbase qttools qttranslations
+            deactivate
+            rm -rf venv
+          fi
+          echo "$HOME/qt/${{ env.QT_VERSION }}/macos/bin" >> "$GITHUB_PATH"
+          echo "$HOME/qt/${{ env.QT_VERSION }}/clang_64/bin" >> "$GITHUB_PATH"
+
+      # Same install mechanism as unit-tests.yml's Windows step, with
+      # qttools/qttranslations added for the same lrelease reason as macOS
+      # above; qtmultimedia skipped for the same reason too.
+      - name: Install Qt (aqtinstall, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path -Path C:\Qt) {
+            Write-Host "Using Qt installation from previous run (actions/cache)"
+          } else {
+            pip install "aqtinstall==$env:AQTINSTALL_VERSION"
+            aqt install-qt --outputdir C:\Qt windows desktop $env:QT_VERSION win64_msvc2022_64 --archives qtbase qttools qttranslations
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
+
+      # ---------------------------------------------------------------
+      # Windows: JACK2, downloaded and installed silently the same way as
+      # the autobuild workflow's Ensure-JACK (.github/autobuild/windows.ps1)
+      # does for its own "jackonwindows" variant -- same release URL
+      # pattern, same /SILENT /SUPPRESSMSGBOXES /NORESTART installer args.
+      # This is what CONFIG+=jackonwindows in Jamulus.pro expects to find
+      # under Program Files (jack.h + import lib), and it also gives us
+      # the jackd.exe + dummy driver the smoke test starts at runtime --
+      # no ASIO SDK download needed for this build at all.
+      # ---------------------------------------------------------------
+      - name: Install JACK2 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $jackUrl = "https://github.com/jackaudio/jack2-releases/releases/download/v${env:JACK_VERSION}/jack2-win64-v${env:JACK_VERSION}.exe"
+          $installer = "$env:RUNNER_TEMP\jack2-win64.exe"
+          Invoke-WebRequest -Uri $jackUrl -OutFile $installer
+          Write-Host "Downloaded installer size: $((Get-Item $installer).Length) bytes"
+          Start-Process -Wait $installer -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+
+          # Jamulus.pro's own jackonwindows check looks for
+          # "$programfilesdir/JACK2/include/jack/jack.h" -- use the same
+          # marker as our install-succeeded gate, rather than guessing at
+          # a bin/ layout that may not match the installer's actual output.
+          $jackHeader = "C:\Program Files\JACK2\include\jack\jack.h"
+          if (-not (Test-Path $jackHeader)) {
+            Write-Host "::error::JACK2 install did not produce expected header: $jackHeader"
+            Write-Host "Contents of C:\Program Files (recursive, top 200 entries):"
+            Get-ChildItem -Path "C:\Program Files" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 200 -ExpandProperty FullName
+            throw "JACK2 installation failed or used an unexpected layout"
+          }
+
+          $jackdExe = Get-ChildItem -Path "C:\Program Files\JACK2" -Filter "jackd.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $jackdExe) {
+            Write-Host "::error::jackd.exe not found anywhere under C:\Program Files\JACK2"
+            Get-ChildItem -Path "C:\Program Files\JACK2" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+            throw "jackd.exe missing from JACK2 installation"
+          }
+          Write-Host "Found jackd.exe: $($jackdExe.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $jackdExe.DirectoryName
+
+      - name: Build Jamulus (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir build
+          cd build
+          ${{ matrix.config.qmake }} ../Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}" ${{ matrix.config.qmake_extra_args }}
+          make -j"$(nproc 2> /dev/null || sysctl -n hw.logicalcpu)"
+
+      # Same MSVC-environment bootstrap as unit-tests.yml's "Build unit
+      # tests (Windows)" step -- see that workflow for why this hand-rolled
+      # vcvarsall-diff approach is used instead of ilammy/msvc-dev-cmd.
+      - name: Build Jamulus (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvarsall = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
+
+          $before = cmd /c "set"
+          $after  = cmd /c "call `"$vcvarsall`" x64 >nul && set"
+
+          $beforeMap = @{}
+          foreach ($line in $before) {
+            if ($line -match '^([^=]+)=(.*)$') { $beforeMap[$Matches[1]] = $Matches[2] }
+          }
+          foreach ($line in $after) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $name = $Matches[1]; $value = $Matches[2]
+              if ($beforeMap[$name] -ne $value) {
+                [System.Environment]::SetEnvironmentVariable($name, $value)
+              }
+            }
+          }
+
+          where.exe cl
+
+          mkdir build
+          cd build
+          qmake ..\Jamulus.pro "CONFIG+=${{ matrix.config.qmake_config }}" "CONFIG-=debug_and_release" "CONFIG+=release" "DESTDIR=." ${{ matrix.config.qmake_extra_args }}
+          nmake
+
+      # Locates the built binary regardless of platform-specific layout
+      # (plain executable on Linux/Windows; possibly Jamulus.app/Contents/
+      # MacOS/Jamulus if qmake produced an app bundle on macOS even in
+      # headless mode) and hands it to the shared smoke-test runner.
+      - name: Locate binary and run smoke test
+        if: runner.os != 'Windows'
+        run: |
+          JAMULUS_BIN="$(find build -type f -name Jamulus | head -n1)"
+          if [ -z "$JAMULUS_BIN" ]; then
+            echo "::error::Could not find built Jamulus binary under build/"
+            find build -maxdepth 4
+            exit 1
+          fi
+          echo "Using binary: $JAMULUS_BIN"
+          SKIP_JACKD_FLAG=""
+          if [ "${{ matrix.config.skip_jackd }}" = "true" ]; then
+            SKIP_JACKD_FLAG="--skip-jackd"
+          fi
+          python3 tools/smoke-test.py --jamulus-bin "$JAMULUS_BIN" $SKIP_JACKD_FLAG
+
+      - name: Locate binary and run smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $jamulusBin = Get-ChildItem -Path build -Filter Jamulus.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $jamulusBin) {
+            Write-Host "::error::Could not find built Jamulus.exe under build/"
+            Get-ChildItem -Path build -Recurse
+            exit 1
+          }
+          Write-Host "Using binary: $jamulusBin"
+          $skipJackdFlag = @()
+          if ("${{ matrix.config.skip_jackd }}" -eq "true") {
+            $skipJackdFlag = @("--skip-jackd")
+          }
+          python tools/smoke-test.py --jamulus-bin $jamulusBin @skipJackdFlag
