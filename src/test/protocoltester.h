@@ -45,6 +45,7 @@ public:
         Connect ( Receiver, Sender, iSenderAcceptedCount );
         WireSentFrameLog();
         WireReceivedLog();
+        WireCLMessages();
     }
 
     CProtocol Sender;
@@ -59,6 +60,10 @@ public:
     QStringList SentFrames() const { return strlSentFrames; }
 
     CVector<uint8_t> LastSentFrame() const { return vecbyLastSentFrame; }
+
+    // CL (connection-less) counterpart of SentFrames() above, for the golden
+    // frame coverage of connection-less messages (e.g. CLPing).
+    QStringList CLSentFrames() const { return strlCLSentFrames; }
 
     /* receiver-side acceptance ---------------------------------------------- */
 
@@ -301,9 +306,34 @@ private:
         } );
     }
 
+    // CL (connection-less) messages bypass ParseMessageBody/Connect() above --
+    // they're delivered via ParseConnectionLessMessageBody instead -- so this
+    // is a separate, small hookup, wired only as far as the ported CLPing
+    // tests need (golden frame + round trip via ReceivedLog()).
+    void WireCLMessages()
+    {
+        QObject::connect ( &Sender, &CProtocol::CLMessReadyForSending, [this] ( CHostAddress InetAddr, CVector<uint8_t> vecMessage ) {
+            strlCLSentFrames << QString::fromLatin1 ( ToByteArray ( vecMessage ).toHex ( ' ' ) );
+
+            CVector<uint8_t> vecbyMesBodyData;
+            int              iRecCounter = 0;
+            int              iRecID      = 0;
+
+            if ( ParseFrame ( vecMessage, vecbyMesBodyData, iRecCounter, iRecID ) )
+            {
+                Receiver.ParseConnectionLessMessageBody ( vecbyMesBodyData, iRecID, InetAddr );
+            }
+        } );
+
+        QObject::connect ( &Receiver, &CProtocol::CLPingReceived, [this] ( CHostAddress InetAddr, int iMs ) {
+            strlReceivedLog << QStringLiteral ( "CLPingReceived(%1, %2)" ).arg ( InetAddr.toString() ).arg ( iMs );
+        } );
+    }
+
     QStringList      strlSentFrames;
     CVector<uint8_t> vecbyLastSentFrame;
     QStringList      strlReceivedLog;
+    QStringList      strlCLSentFrames;
 
     int iReceiverAcceptedCount = 0;
     int iSenderAcceptedCount   = 0;
