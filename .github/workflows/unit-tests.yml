@@ -89,23 +89,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # Single source of truth for the Qt version is autobuild.yml's macOS
-      # main build entry -- parsed here instead of duplicating the number.
-      # The Qt setup below reuses that workflow's scripts and cache.
-      - name: Determine Qt version from autobuild.yml
-        if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          QT_VERSION="$(grep -E 'base_command:.*QT_VERSION=.*mac\.sh' .github/workflows/autobuild.yml \
-            | grep -v ARTIFACT_SUFFIX \
-            | sed -Ee 's/.*QT_VERSION=([0-9.]+).*/\1/' || true)"
-          if [[ ! "$QT_VERSION" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
-            echo "Could not determine a unique QT_VERSION from autobuild.yml (got: '$QT_VERSION')" >&2
-            exit 1
-          fi
-          echo "Using Qt version $QT_VERSION (from autobuild.yml)"
-          echo "QT_VERSION=$QT_VERSION" >> "$GITHUB_ENV"
-
       - name: Install Qt (Linux distro packages)
         if: runner.os == 'Linux'
         run: |
@@ -118,62 +101,16 @@ jobs:
         with:
           xcode-version: ${{ matrix.config.xcode_version }}
 
-      # Same cache path/key as autobuild.yml's "MacOS (artifacts)" job, so
-      # this job shares that cache instead of keeping a separate one.
-      - name: Cache Qt (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/qt
-            ~/Library/Cache/jamulus-dependencies
-          key: macos-${{ hashFiles('.github/workflows/autobuild.yml', '.github/autobuild/mac.sh', 'mac/deploy_mac.sh') }}-QT_VERSION=${{ env.QT_VERSION }} SIGN_IF_POSSIBLE=1 TARGET_ARCHS="x86_64 arm64" ./.github/autobuild/mac.sh
-
-      # Same cache path/key as autobuild.yml's "Windows (artifact+codeQL)"
-      # job, so this job shares that cache instead of keeping a separate one.
-      - name: Cache Qt (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v6
-        with:
-          path: |
-            C:\Qt
-            C:\ChocoCache
-            C:\AutobuildCache
-            ${{ github.workspace }}\libs\NSIS\NSIS-source
-            ${{ github.workspace }}\libs\ASIOSDK2
-          key: windows-${{ hashFiles('.github/workflows/autobuild.yml', '.github/autobuild/windows.ps1', 'windows/deploy_windows.ps1') }}-powershell .\.github\autobuild\windows.ps1 -Stage
-
-      # Reuses autobuild's own Qt setup instead of a separate aqtinstall call,
-      # so the cache above is genuinely shared rather than duplicated --
-      # heavier than this suite needs (qttools/qttranslations/qtmultimedia
-      # besides qtbase).
-      - name: Install Qt (macOS, via autobuild's mac.sh)
-        if: runner.os == 'macOS'
-        run: ./.github/autobuild/mac.sh setup
-
-      - name: Add Qt to PATH (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          # macos/ is the Qt6 layout, clang_64/ is Qt5's; only one will exist.
-          echo "$HOME/qt/${{ env.QT_VERSION }}/macos/bin" >> "$GITHUB_PATH"
-          echo "$HOME/qt/${{ env.QT_VERSION }}/clang_64/bin" >> "$GITHUB_PATH"
-
-      # Reuses autobuild's own Qt setup instead of a separate aqtinstall call,
-      # so the cache above is genuinely shared rather than duplicated --
-      # heavier than this suite needs (a 32-bit Qt, jom, full module set
-      # besides qtbase).
-      - name: Install Qt (Windows, via autobuild's windows.ps1)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: powershell .\.github\autobuild\windows.ps1 -Stage setup
-
-      - name: Add Qt to PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # windows.ps1 hardcodes this Qt/MSVC pairing internally (no env
-          # override), so it must be kept in sync with it by hand.
-          Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\${{ env.QT_VERSION }}\msvc2022_64\bin"
+      # Shares the cache+install+PATH-export that autobuild.yml's macOS/
+      # Windows jobs use, via the composite action they both consume --
+      # rather than this workflow parsing autobuild.yml's Qt version at
+      # runtime and re-declaring matching cache keys/scripts by hand. No
+      # qt-version override here, so this rides the action's default (the
+      # single source of truth for "the current Qt version"), same as
+      # autobuild.yml's macOS main entry.
+      - name: Setup Qt (macOS/Windows)
+        if: runner.os != 'Linux'
+        uses: ./.github/actions/setup-qt
 
       - name: Build unit tests
         env:
