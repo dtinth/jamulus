@@ -468,11 +468,18 @@ Three autobuild.yml runs matter here, in order:
      the trailing version token -- exactly the "one formula, two cache
      slots" property the action is meant to provide.)
 
-   The one job from this run not confirmed complete in this writeup is
-   `Android .apk (artifact+codeQL)` -- it's still building as of this
-   writing, but it's irrelevant to this spike's verification: `target_os
-   == 'android'` never touches any `Setup Qt` step (all skipped), so
-   nothing about the composite action affects it.
+   `Android .apk (artifact+codeQL)` also finished successfully (irrelevant
+   to this spike's verification either way: `target_os == 'android'` never
+   touches any `Setup Qt` step, all skipped) -- with every other job above,
+   this run ended **10/10 jobs green**, the full autobuild matrix, on the
+   fully-fixed commit.
+
+   A subsequent run against the final commit (`efee48ca`, docs-only) was
+   also verified for unit-tests.yml: https://github.com/dtinth/jamulus/actions/runs/30089613789
+   -- all 6 jobs green, confirming the doc-only tweak to `action.yml`'s
+   `add-to-path` description didn't disturb anything (it does bust the
+   cache once more, per the "Cache-key compatibility" section above, since
+   any edit to `action.yml` changes the hash -- expected, not a regression).
 
 Note on the push trigger itself: the **first** push of a brand-new branch
 named `autobuild/spike-setup-qt` (and, separately, a no-slash
