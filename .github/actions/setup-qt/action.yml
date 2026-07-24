@@ -30,6 +30,21 @@ inputs:
       plain ASIO build.
     required: false
     default: ''
+  add-to-path:
+    description: >-
+      Add the installed Qt's bin/ directory to PATH (GITHUB_PATH). Opt-in,
+      default 'false': mac.sh's and windows/deploy_windows.ps1's build steps
+      resolve Qt via explicit absolute paths internally and never needed
+      this -- unit-tests.yml's run-unit-tests.py is the one caller that
+      invokes `qmake` bare and needs it on PATH. Forcing this on
+      unconditionally for autobuild.yml's Windows jobs actively broke the
+      "Windows JACK" entry: it builds against the *other* hardcoded Qt
+      version (Qt32Version, not the qt-version this input tracks), and
+      having the wrong version's bin/ on PATH made windeployqt resolve a
+      dependent DLL against the wrong Qt install and fail. See the spike
+      writeup for the CI failure this caused before this input existed.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -101,7 +116,7 @@ runs:
         QT_VERSION: ${{ inputs.qt-version }}
 
     - name: Add Qt to PATH (macOS)
-      if: runner.os == 'macOS'
+      if: runner.os == 'macOS' && inputs.add-to-path == 'true'
       shell: bash
       run: |
         # macos/ is the Qt6 layout, clang_64/ is Qt5's; only one will exist.
@@ -109,7 +124,7 @@ runs:
         echo "$HOME/qt/${{ inputs.qt-version }}/clang_64/bin" >> "$GITHUB_PATH"
 
     - name: Add Qt to PATH (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && inputs.add-to-path == 'true'
       shell: pwsh
       run: |
         # windows.ps1 installs its 64-bit Qt to C:\Qt\<Qt64Version>\msvc2022_64;

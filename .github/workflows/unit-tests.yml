@@ -101,16 +101,21 @@ jobs:
         with:
           xcode-version: ${{ matrix.config.xcode_version }}
 
-      # Shares the cache+install+PATH-export that autobuild.yml's macOS/
-      # Windows jobs use, via the composite action they both consume --
-      # rather than this workflow parsing autobuild.yml's Qt version at
-      # runtime and re-declaring matching cache keys/scripts by hand. No
-      # qt-version override here, so this rides the action's default (the
-      # single source of truth for "the current Qt version"), same as
-      # autobuild.yml's macOS main entry.
+      # Shares the cache+install that autobuild.yml's macOS/Windows jobs
+      # use, via the composite action they both consume -- rather than this
+      # workflow parsing autobuild.yml's Qt version at runtime and
+      # re-declaring matching cache keys/scripts by hand. No qt-version
+      # override here, so this rides the action's default (the single
+      # source of truth for "the current Qt version"), same as
+      # autobuild.yml's macOS main entry. add-to-path is opt-in on the
+      # action (autobuild.yml's build scripts resolve Qt via explicit
+      # absolute paths and don't need it) -- this job's run-unit-tests.py
+      # invokes `qmake` bare via QMAKE_BIN, so it does.
       - name: Setup Qt (macOS/Windows)
         if: runner.os != 'Linux'
         uses: ./.github/actions/setup-qt
+        with:
+          add-to-path: 'true'
 
       - name: Build unit tests
         env:

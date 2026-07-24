@@ -305,7 +305,8 @@ jobs:
       # Replaces the old "Cache Mac dependencies" step: the setup-qt action
       # owns Qt's cache+install now (see .github/actions/setup-qt/action.yml
       # for why this is two steps -- default vs. pinned Qt version -- rather
-      # than one with a fallback expression).
+      # than one with a fallback expression). No add-to-path here: mac.sh's
+      # build step sets its own PATH internally, so this job never needed it.
       - name:                       Setup Qt (macOS, default version)
         if:                         matrix.config.target_os == 'macos' && !matrix.config.qt_version
         uses:                       ./.github/actions/setup-qt
@@ -318,7 +319,10 @@ jobs:
 
       # Replaces the old "Cache Windows dependencies" step. Both Windows
       # entries use the default Qt version, so unlike macOS there's no
-      # override split here -- only windows-build-option varies.
+      # override split here -- only windows-build-option varies. No
+      # add-to-path here either: deploy_windows.ps1 resolves Qt via explicit
+      # absolute paths, and forcing PATH-injection on unconditionally here
+      # is what broke the JACK entry (see spike writeup).
       - name:                       Setup Qt (Windows)
         if:                         matrix.config.target_os == 'windows'
         uses:                       ./.github/actions/setup-qt
