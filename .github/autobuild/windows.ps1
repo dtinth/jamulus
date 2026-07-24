@@ -72,6 +72,14 @@ $DownloadCacheDir = 'C:\AutobuildCache'
 # updates. Verify .github/workflows/bump-dependencies.yaml when changing those manually:
 $Qt32Version = "5.15.2"
 $Qt64Version = "6.10.2"
+# When invoked via .github/actions/setup-qt (which always sets QT_VERSION),
+# that action's qt-version input wins and is the actual single source of
+# truth; the literal above is only a fallback for standalone/manual
+# invocations that skip the action (also keeps bump-dependencies.yml's Qt6
+# job able to find/bump a plain "$Qt64Version = "X.Y.Z"" line here, see
+# research/setup-qt-action-spike.md for why that job needs a companion
+# update to actually track the action's default instead/as well).
+if ($Env:QT_VERSION) { $Qt64Version = $Env:QT_VERSION }
 $AqtinstallVersion = "3.3.0"
 $JackVersion = "1.9.22"
 $Msvc32Version = "win32_msvc2019"

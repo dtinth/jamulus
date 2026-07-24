@@ -224,7 +224,10 @@ jobs:
           - config_name:            MacOS (artifacts)
             target_os:              macos
             building_on_os:         macos-15
-            base_command:           QT_VERSION=6.10.2 SIGN_IF_POSSIBLE=1 TARGET_ARCHS="x86_64 arm64" ./.github/autobuild/mac.sh
+            base_command:           SIGN_IF_POSSIBLE=1 TARGET_ARCHS="x86_64 arm64" ./.github/autobuild/mac.sh
+            # No qt_version here: this entry rides the setup-qt action's
+            # default (see .github/actions/setup-qt/action.yml), which IS
+            # the single source of truth for "the current Qt version".
             # Disable CodeQL on mac as it interferes with signing the binaries (signing hangs, see #2563 and #2564)
             run_codeql:             false
             xcode_version:          16.3.0
@@ -234,7 +237,9 @@ jobs:
           - config_name:            MacOS Legacy (artifacts+CodeQL)
             target_os:              macos
             building_on_os:         macos-15-intel
-            base_command:           QT_VERSION=5.15.2 SIGN_IF_POSSIBLE=0 ARTIFACT_SUFFIX=_legacy ./.github/autobuild/mac.sh
+            base_command:           SIGN_IF_POSSIBLE=0 ARTIFACT_SUFFIX=_legacy ./.github/autobuild/mac.sh
+            # Overrides the setup-qt action's default Qt version (see above).
+            qt_version:             5.15.2
             # Enable CodeQL on mac legacy as this version does not get signed
             run_codeql:             true
             # macos-15-intel ships with Xcode 16.x; while Qt5 is older, Xcode 16 still supports building it
@@ -264,6 +269,12 @@ jobs:
             target_os:              windows
             building_on_os:         windows-2025
             base_command:           powershell .\.github\autobuild\windows.ps1 -BuildOption jackonwindows -Stage
+            # setup-qt's Windows install runs windows.ps1's "-Stage setup",
+            # which also conditionally installs JACK depending on
+            # -BuildOption; this keeps that happening (and keeps this
+            # entry's cache separate from the plain Windows entry's, since
+            # the two entries' setup stages install different things):
+            windows_build_option:   jackonwindows
             run_codeql:             false
 
         # This injects the build_all_targets information into each matrix output:
@@ -291,26 +302,28 @@ jobs:
           submodules:               ${{ matrix.config.target_os == 'android' }}
           fetch-depth:              ${{ matrix.config.checkout_fetch_depth || '1' }}
 
-      - name:                       Cache Mac dependencies
-        if:                         matrix.config.target_os == 'macos'
-        uses:                       actions/cache@v6
-        with:
-          path: |
-            ~/qt
-            ~/Library/Cache/jamulus-dependencies
-          key:                      ${{ matrix.config.target_os }}-${{ hashFiles('.github/workflows/autobuild.yml', '.github/autobuild/mac.sh', 'mac/deploy_mac.sh') }}-${{ matrix.config.base_command }}
+      # Replaces the old "Cache Mac dependencies" step: the setup-qt action
+      # owns Qt's cache+install now (see .github/actions/setup-qt/action.yml
+      # for why this is two steps -- default vs. pinned Qt version -- rather
+      # than one with a fallback expression).
+      - name:                       Setup Qt (macOS, default version)
+        if:                         matrix.config.target_os == 'macos' && !matrix.config.qt_version
+        uses:                       ./.github/actions/setup-qt
 
-      - name:                       Cache Windows dependencies
-        if:                         matrix.config.target_os == 'windows'
-        uses:                       actions/cache@v6
+      - name:                       Setup Qt (macOS, pinned version)
+        if:                         matrix.config.target_os == 'macos' && matrix.config.qt_version
+        uses:                       ./.github/actions/setup-qt
         with:
-          path: |
-            C:\Qt
-            C:\ChocoCache
-            C:\AutobuildCache
-            ${{ github.workspace }}\libs\NSIS\NSIS-source
-            ${{ github.workspace }}\libs\ASIOSDK2
-          key:                      ${{ matrix.config.target_os }}-${{ hashFiles('.github/workflows/autobuild.yml', '.github/autobuild/windows.ps1', 'windows/deploy_windows.ps1') }}-${{ matrix.config.base_command }}
+          qt-version:               ${{ matrix.config.qt_version }}
+
+      # Replaces the old "Cache Windows dependencies" step. Both Windows
+      # entries use the default Qt version, so unlike macOS there's no
+      # override split here -- only windows-build-option varies.
+      - name:                       Setup Qt (Windows)
+        if:                         matrix.config.target_os == 'windows'
+        uses:                       ./.github/actions/setup-qt
+        with:
+          windows-build-option:     ${{ matrix.config.windows_build_option }}
 
       - name:                       Cache Android dependencies
         if:                         matrix.config.target_os == 'android'
@@ -322,7 +335,13 @@ jobs:
             /opt/android/android-ndk
           key:                      ${{ matrix.config.target_os }}-${{ hashFiles('.github/workflows/autobuild.yml', '.github/autobuild/android.sh') }}-${{ matrix.config.base_command }}
 
+      # Skipped for macOS/Windows: the setup-qt action above already ran
+      # their "setup" stage (Qt install, plus jom/JACK for Windows). Running
+      # `base_command setup` again here would just redo that work -- mostly
+      # harmless (mac.sh/windows.ps1's Qt install steps are idempotent
+      # no-ops on a second call) but pointlessly, so skip it outright.
       - name:                       Set up build dependencies for ${{ matrix.config.config_name }}
+        if:                         matrix.config.target_os != 'macos' && matrix.config.target_os != 'windows'
         run:                        ${{ matrix.config.base_command }} setup
         env:
           JAMULUS_BUILD_VERSION:    ${{ needs.create_release.outputs.build_version }}

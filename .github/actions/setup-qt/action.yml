@@ -1,0 +1,109 @@
+name: 'Setup Qt'
+description: >-
+  Installs (and caches) the Qt toolchain used by autobuild.yml and
+  unit-tests.yml, via the same mac.sh / windows.ps1 "setup" stage both
+  workflows already relied on. Owns the cache so autobuild.yml and
+  unit-tests.yml genuinely share one cache instead of keeping two cache-key
+  strings in sync by hand. No-op on platforms other than macOS/Windows
+  (Linux jobs install Qt via distro packages instead).
+
+inputs:
+  qt-version:
+    description: >-
+      Qt version to install. This default is THE single source of truth for
+      "the current Qt version" -- callers that don't need a different Qt
+      line (e.g. unit-tests.yml, autobuild.yml's main macOS entry) should
+      omit this input entirely rather than repeat the literal. Callers that
+      need a specific older/newer line (e.g. autobuild.yml's macOS Legacy
+      entry, pinned to Qt5) pass it explicitly.
+    required: false
+    default: '6.10.2'
+  windows-build-option:
+    description: >-
+      Passed through as windows.ps1's -BuildOption during the setup stage
+      (e.g. 'jackonwindows'). Needed because windows.ps1's setup stage does
+      more than install Qt -- it also conditionally installs JACK depending
+      on -BuildOption -- and that must keep happening for the build entries
+      that need it. Also folded into the Windows cache key so entries with
+      different build options don't collide on (or silently share) a cache
+      populated for a different set of installed tools. Leave empty for the
+      plain ASIO build.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # Exported once, here, so every later step in the job -- including the
+    # workflow's own `build`/`get-artifacts`/etc. steps that still shell out
+    # to mac.sh/windows.ps1 -- sees QT_VERSION without the workflow needing
+    # to repeat the literal in `base_command`.
+    - name: Export QT_VERSION
+      shell: bash
+      run: echo "QT_VERSION=${{ inputs.qt-version }}" >> "$GITHUB_ENV"
+
+    # Same cache paths as before this action existed. The key is now owned
+    # here instead of being copy-pasted (and kept byte-identical by hand)
+    # across autobuild.yml and unit-tests.yml -- that's the main hazard this
+    # action removes. It intentionally does NOT hash the calling workflow
+    # file(s) or the full base_command string anymore: only the qt-version
+    # actually consumed here, plus the scripts that do the installing, so a
+    # change to (say) TARGET_ARCHS or SIGN_IF_POSSIBLE no longer needlessly
+    # busts the Qt cache. See research/setup-qt-action-spike.md for the
+    # resulting one-time cache-key change / repopulation this causes.
+    - name: Cache Qt (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/qt
+          ~/Library/Cache/jamulus-dependencies
+        key: macos-qt-${{ hashFiles('.github/actions/setup-qt/action.yml', '.github/autobuild/mac.sh', 'mac/deploy_mac.sh') }}-${{ inputs.qt-version }}
+
+    - name: Cache Qt (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v6
+      with:
+        path: |
+          C:\Qt
+          C:\ChocoCache
+          C:\AutobuildCache
+          ${{ github.workspace }}\libs\NSIS\NSIS-source
+          ${{ github.workspace }}\libs\ASIOSDK2
+        key: windows-qt-${{ hashFiles('.github/actions/setup-qt/action.yml', '.github/autobuild/windows.ps1', 'windows/deploy_windows.ps1') }}-${{ inputs.qt-version }}-${{ inputs.windows-build-option }}
+
+    # mac.sh's setup stage only ever installs Qt, so this is a pure Qt
+    # install. windows.ps1's setup stage is broader (it also installs jom,
+    # and JACK when -BuildOption asks for it) -- that's inherited scope, not
+    # something this action adds; see the description above and the spike
+    # writeup for why it's still fine to own from here.
+    - name: Install Qt (macOS, via autobuild's mac.sh)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: ./.github/autobuild/mac.sh setup
+      env:
+        QT_VERSION: ${{ inputs.qt-version }}
+
+    - name: Install Qt (Windows, via autobuild's windows.ps1)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: powershell .\.github\autobuild\windows.ps1 -Stage setup -BuildOption '${{ inputs.windows-build-option }}'
+      env:
+        QT_VERSION: ${{ inputs.qt-version }}
+
+    - name: Add Qt to PATH (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        # macos/ is the Qt6 layout, clang_64/ is Qt5's; only one will exist.
+        echo "$HOME/qt/${{ inputs.qt-version }}/macos/bin" >> "$GITHUB_PATH"
+        echo "$HOME/qt/${{ inputs.qt-version }}/clang_64/bin" >> "$GITHUB_PATH"
+
+    - name: Add Qt to PATH (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        # windows.ps1 installs its 64-bit Qt to C:\Qt\<Qt64Version>\msvc2022_64;
+        # Qt64Version now honors this action's QT_VERSION export (see
+        # windows.ps1), so this stays correct without a second hardcoded value.
+        Add-Content -Path $env:GITHUB_PATH -Value "C:\Qt\${{ inputs.qt-version }}\msvc2022_64\bin"
