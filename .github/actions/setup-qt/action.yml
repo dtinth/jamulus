@@ -37,12 +37,14 @@ inputs:
       resolve Qt via explicit absolute paths internally and never needed
       this -- unit-tests.yml's run-unit-tests.py is the one caller that
       invokes `qmake` bare and needs it on PATH. Forcing this on
-      unconditionally for autobuild.yml's Windows jobs actively broke the
-      "Windows JACK" entry: it builds against the *other* hardcoded Qt
-      version (Qt32Version, not the qt-version this input tracks), and
-      having the wrong version's bin/ on PATH made windeployqt resolve a
-      dependent DLL against the wrong Qt install and fail. See the spike
-      writeup for the CI failure this caused before this input existed.
+      unconditionally for autobuild.yml's Windows jobs actively broke BOTH
+      Windows entries (not just "Windows JACK"): deploy_windows.ps1 always
+      builds both the x86 (Qt32Version) and x86_64 (Qt64Version) variants
+      regardless of -BuildOption, so windeployqt from the 32-bit Qt install
+      always runs too, and having the 64-bit Qt's bin/ on PATH made it
+      resolve a dependent DLL against the wrong Qt install and fail. See
+      the spike writeup for the CI failures this caused before this input
+      existed.
     required: false
     default: 'false'
 
