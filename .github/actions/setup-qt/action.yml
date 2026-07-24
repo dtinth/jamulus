@@ -87,7 +87,16 @@ runs:
     - name: Install Qt (Windows, via autobuild's windows.ps1)
       if: runner.os == 'Windows'
       shell: pwsh
-      run: powershell .\.github\autobuild\windows.ps1 -Stage setup -BuildOption '${{ inputs.windows-build-option }}'
+      # -BuildOption must be omitted entirely (not passed as ''), rather than
+      # always passed and possibly empty: the nested `powershell.exe` call
+      # silently drops a trailing empty-string argument, which previously
+      # surfaced as "Missing an argument for parameter 'BuildOption'".
+      run: |
+        $psArgs = @('.\.github\autobuild\windows.ps1', '-Stage', 'setup')
+        if ('${{ inputs.windows-build-option }}') {
+          $psArgs += @('-BuildOption', '${{ inputs.windows-build-option }}')
+        }
+        powershell @psArgs
       env:
         QT_VERSION: ${{ inputs.qt-version }}
 
